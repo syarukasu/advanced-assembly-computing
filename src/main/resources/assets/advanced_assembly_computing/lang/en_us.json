@@ -1,0 +1,11 @@
+{
+  "itemGroup.advanced_assembly_computing": "Advanced Assembly Computing",
+  "block.advanced_assembly_computing.vector_crafting_controller": "Vector Crafting Controller",
+  "block.advanced_assembly_computing.vector_crafting_parallel_core": "Vector Parallel Core",
+  "block.advanced_assembly_computing.vector_crafting_worker": "Vector Worker Core",
+  "tooltip.advanced_assembly_computing.logical_executions_per_wave": "Up to %s logical crafts per physical job",
+  "tooltip.advanced_assembly_computing.physical_threads_per_worker": "Physical threads per worker: %s",
+  "tooltip.advanced_assembly_computing.controller": "Executes proven deterministic Neo ECO batches under ACO's time budget.",
+  "tooltip.advanced_assembly_computing.parallel_core": "Required by every parallel-core position in the vector structure.",
+  "tooltip.advanced_assembly_computing.worker": "Stores one aggregate task instead of one object per logical craft."
+}

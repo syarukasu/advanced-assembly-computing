@@ -1,0 +1,11 @@
+{
+  "itemGroup.advanced_assembly_computing": "高度組立演算",
+  "block.advanced_assembly_computing.vector_crafting_controller": "ベクトル組立コントローラ",
+  "block.advanced_assembly_computing.vector_crafting_parallel_core": "ベクトル並列コア",
+  "block.advanced_assembly_computing.vector_crafting_worker": "ベクトルワーカーコア",
+  "tooltip.advanced_assembly_computing.logical_executions_per_wave": "1物理仕事あたり最大 %s 論理クラフト",
+  "tooltip.advanced_assembly_computing.physical_threads_per_worker": "ワーカーあたり物理Thread: %s",
+  "tooltip.advanced_assembly_computing.controller": "証明可能なNeo ECO BatchをACOの時間予算内で実行します。",
+  "tooltip.advanced_assembly_computing.parallel_core": "上位構造のすべての並列コア位置で必要です。",
+  "tooltip.advanced_assembly_computing.worker": "論理クラフトごとの実体を作らず、一件の合算タスクとして保持します。"
+}

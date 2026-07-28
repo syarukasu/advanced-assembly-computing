@@ -1,0 +1,12 @@
+{
+  "variants": {
+    "facing=north,formed=false": { "model": "neoecoae:block/crafting_core/parallel_core_l9", "y": 0 },
+    "facing=north,formed=true": { "model": "neoecoae:block/crafting_core/parallel_core_l9_formed", "y": 0 },
+    "facing=east,formed=false": { "model": "neoecoae:block/crafting_core/parallel_core_l9", "y": 90 },
+    "facing=east,formed=true": { "model": "neoecoae:block/crafting_core/parallel_core_l9_formed", "y": 90 },
+    "facing=south,formed=false": { "model": "neoecoae:block/crafting_core/parallel_core_l9", "y": 180 },
+    "facing=south,formed=true": { "model": "neoecoae:block/crafting_core/parallel_core_l9_formed", "y": 180 },
+    "facing=west,formed=false": { "model": "neoecoae:block/crafting_core/parallel_core_l9", "y": 270 },
+    "facing=west,formed=true": { "model": "neoecoae:block/crafting_core/parallel_core_l9_formed", "y": 270 }
+  }
+}
