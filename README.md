@@ -20,7 +20,7 @@ one Worker, Thread, Pattern push, or Java loop per craft.
 - Java `17`
 - Applied Energistics 2 `15.4.10`
 - Neo ECO AE Extension `20.3.0`
-- AE2 Crafting Optimizer `1.5.4`
+- AE2 Crafting Optimizer `1.5.4+` in the `1.5.x` series
 - Advanced Quantum Engineering `2.1.2` through `2.2.x` is optional
 - Dedicated server, singleplayer, and Arclight as a normal Forge mod
 
@@ -87,6 +87,10 @@ The Worker-local terminal ledger stores:
 - transaction UUID;
 - payload digest;
 - exact BigInteger output map.
+
+At common setup AAC verifies that ACO retained the exact adapter instance
+registered for `advanced_assembly_computing:native_crafting_table_batch`.
+Missing or replaced registration fails before a transaction can own inputs.
 
 The Worker records this receipt before releasing the physical Thread. ACO
 credits the receipt once and then explicitly deletes it. A mismatched payload,

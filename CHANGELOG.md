@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-07-29
+
+### Fixed
+
+- Verified after registration that ACO retained AAC's exact native
+  crafting-table adapter instance. Missing or replaced registrations now fail
+  during integration setup before any transaction can start.
+- Added startup identity diagnostics for the loaded AAC version, adapter ID,
+  ACO Pattern Batch API, and terminal receipt schema.
+- Added a regression test for adapter identity replacement.
+
 ## [1.0.0] - 2026-07-28
 
 ### Added
