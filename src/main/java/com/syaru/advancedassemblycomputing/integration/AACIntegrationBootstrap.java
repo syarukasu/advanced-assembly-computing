@@ -2,8 +2,11 @@ package com.syaru.advancedassemblycomputing.integration;
 
 import com.syaru.advancedassemblycomputing.AdvancedAssemblyComputing;
 import com.syaru.advancedassemblycomputing.config.AACConfig;
+import com.syaru.advancedassemblycomputing.execution.AACCraftingTableTerminalReceiptLedger;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.PatternBatchV2Api;
+import com.syaru.ae2craftingoptimizer.api.batch.v2.TransactionalPatternBatchAdapter;
 import com.syaru.ae2craftingoptimizer.config.ACOConfig;
+import net.minecraftforge.fml.ModList;
 
 /** ACO公開APIの版検査とAAC Adapter登録を一元管理する。 */
 public final class AACIntegrationBootstrap {
@@ -20,6 +23,17 @@ public final class AACIntegrationBootstrap {
                 PatternBatchV2Api.API_VERSION);
         PatternBatchV2Api.registerAdapter(
                 AACCraftingTableBatchAdapter.INSTANCE);
+        TransactionalPatternBatchAdapter registered =
+                PatternBatchV2Api.adapter(
+                                AACCraftingTableBatchAdapter.ID)
+                        .orElseThrow(
+                                () ->
+                                        new IllegalStateException(
+                                                "ACO did not retain AAC adapter "
+                                                        + AACCraftingTableBatchAdapter.ID));
+        requireRegisteredAdapterIdentity(
+                AACCraftingTableBatchAdapter.INSTANCE,
+                registered);
         /*
          * Adapter登録だけ成功しても、ACO側Master Switchが無効なら
          * long係数は使われずNeoECO標準の物理Thread経路へ戻る。
@@ -33,10 +47,32 @@ public final class AACIntegrationBootstrap {
                             + "ae2_crafting_optimizer-common.toml.");
         }
         AdvancedAssemblyComputing.LOGGER.info(
-                "AAC ACO integration initialized: nativeCraftingTableBatch={}, maximumExecutionsPerWave={}, patternBatchApi={}",
+                "AAC ACO integration initialized: version={}, adapter={}, nativeCraftingTableBatch={}, maximumExecutionsPerWave={}, patternBatchApi={}, receiptSchema={}",
+                loadedVersion(),
+                AACCraftingTableBatchAdapter.ID,
                 AACConfig.nativeCraftingTableBatchEnabled(),
                 AACConfig.maximumCraftingTableBatchExecutions(),
-                PatternBatchV2Api.API_VERSION);
+                PatternBatchV2Api.API_VERSION,
+                AACCraftingTableTerminalReceiptLedger.schemaVersion());
+    }
+
+    static void requireRegisteredAdapterIdentity(
+            Object expected,
+            Object actual) {
+        // 同じIDの別実体へ置換されている場合、Receipt所有者を推測せず起動時に停止する。
+        if (actual != expected) {
+            throw new IllegalStateException(
+                    "ACO registered a different adapter instance for "
+                            + AACCraftingTableBatchAdapter.ID);
+        }
+    }
+
+    private static String loadedVersion() {
+        return ModList.get()
+                .getModContainerById(
+                        AdvancedAssemblyComputing.MOD_ID)
+                .map(container -> container.getModInfo().getVersion().toString())
+                .orElse("unknown");
     }
 
     private static void requireApiVersion(

@@ -81,16 +81,16 @@ dependencies {
         new File(localModsDir, 'neoecoae-20.3.0.jar.disabled')
     ].find { it.isFile() }
     def localLdlib = new File(localModsDir, 'ldlib-forge-1.20.1-1.0.50.jar')
-    def localAco = file('../ae2-crafting-optimizer/build/libs/ae2-crafting-optimizer-1.5.4.jar')
+    def localAco = file('../ae2-crafting-optimizer/build/libs/ae2-crafting-optimizer-1.5.5.jar')
     def localAcoDependency = project.dependencies.create(
             group: 'local.aco',
             name: 'ae2-crafting-optimizer',
-            version: '1.5.4')
+            version: '1.5.5')
 
     // 必須の検証済みArtifactが一つでも欠ける場合は、推測したAPIでビルドを続行しない。
     if (!localAe2.isFile() || localNeoEco == null || !localLdlib.isFile() || !localAco.isFile()) {
         throw new GradleException(
-                'AAC requires the exact local AE2, Neo ECO, LDLib, and ACO 1.5.4 artifacts documented by this project.')
+                'AAC requires the exact local AE2, Neo ECO, LDLib, and ACO 1.5.5 artifacts documented by this project.')
     }
 
     implementation files(localAe2)

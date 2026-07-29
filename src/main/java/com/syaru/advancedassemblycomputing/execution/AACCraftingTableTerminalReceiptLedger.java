@@ -33,6 +33,10 @@ public final class AACCraftingTableTerminalReceiptLedger {
     private boolean corrupted;
     private CompoundTag lockedPayload;
 
+    public static int schemaVersion() {
+        return SCHEMA_VERSION;
+    }
+
     public synchronized boolean isHealthy() {
         return !corrupted;
     }
