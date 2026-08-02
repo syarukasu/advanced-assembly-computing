@@ -1,0 +1,29 @@
+{
+  "neoforge:conditions": [
+    {
+      "type": "neoforge:mod_loaded",
+      "modid": "advanced_quantum_engineering"
+    }
+  ],
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "AMA",
+    "MCM",
+    "AMA"
+  ],
+  "key": {
+    "A": {
+      "item": "advanced_quantum_engineering:modified_quantum_accelerator"
+    },
+    "C": {
+      "item": "neoecoae:crafting_parallel_core_l9"
+    },
+    "M": {
+      "item": "advanced_quantum_engineering:modified_quantum_multi_threader"
+    }
+  },
+  "result": {
+    "id": "advanced_assembly_computing:vector_crafting_parallel_core"
+  }
+}

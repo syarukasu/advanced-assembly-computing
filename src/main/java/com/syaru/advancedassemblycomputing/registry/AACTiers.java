@@ -4,15 +4,15 @@ import cn.dancingsnow.neoecoae.all.NERegistries;
 import cn.dancingsnow.neoecoae.api.IECOTier;
 import com.syaru.advancedassemblycomputing.AdvancedAssemblyComputing;
 import com.syaru.advancedassemblycomputing.tier.AACTier;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.registries.DeferredRegister;
-import net.minecraftforge.registries.RegistryObject;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.registries.DeferredHolder;
+import net.neoforged.neoforge.registries.DeferredRegister;
 
 public final class AACTiers {
     private static final DeferredRegister<IECOTier> TIERS =
             DeferredRegister.create(NERegistries.Keys.ECO_TIER, AdvancedAssemblyComputing.MOD_ID);
 
-    public static final RegistryObject<IECOTier> VECTOR =
+    public static final DeferredHolder<IECOTier, IECOTier> VECTOR =
             TIERS.register("vector", () -> AACTier.VECTOR);
 
     private AACTiers() {

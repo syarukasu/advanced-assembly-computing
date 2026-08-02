@@ -98,7 +98,7 @@ public final class AACCraftingTableBatchAdapter
         return patternBus.getCraftingController()
                         instanceof VectorCraftingControllerBlockEntity controller
                 && controller.isFormed()
-                && controller.getMaxInFlightCrafts() > 0
+                && controller.getVectorCapacity() > 0
                 && patternBus.getAvailablePatterns().contains(
                         context.pattern());
     }

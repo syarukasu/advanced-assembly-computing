@@ -5,10 +5,10 @@ import cn.dancingsnow.neoecoae.multiblock.calculator.NECraftingClusterCalculator
 import com.syaru.advancedassemblycomputing.blockentity.VectorCraftingControllerBlockEntity;
 import com.syaru.advancedassemblycomputing.blockentity.VectorCraftingParallelCoreBlockEntity;
 import com.syaru.advancedassemblycomputing.registry.AACBlocks;
-import com.tterrag.registrate.util.entry.BlockEntry;
 import java.util.function.BiPredicate;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.Holder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -18,7 +18,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.ModifyArg;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(value = NECraftingClusterCalculator.class, remap = false)
@@ -27,13 +27,12 @@ public abstract class NECraftingClusterCalculatorMixin {
     private boolean aac$validatingVectorStructure;
 
     @Inject(
-            method = "verifyInternalStructure(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/BlockPos;Z)Z",
+            method = "verifyInternalStructure(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/BlockPos;)Z",
             at = @At("HEAD"))
     private void aac$detectVectorController(
             ServerLevel level,
             BlockPos min,
             BlockPos max,
-            boolean mirrored,
             CallbackInfoReturnable<Boolean> callbackInfo) {
         aac$validatingVectorStructure = false;
 
@@ -48,33 +47,29 @@ public abstract class NECraftingClusterCalculatorMixin {
     }
 
     @Inject(
-            method = "verifyInternalStructure(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/BlockPos;Z)Z",
+            method = "verifyInternalStructure(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/BlockPos;)Z",
             at = @At("RETURN"))
     private void aac$clearVectorValidationState(
             ServerLevel level,
             BlockPos min,
             BlockPos max,
-            boolean mirrored,
             CallbackInfoReturnable<Boolean> callbackInfo) {
         aac$validatingVectorStructure = false;
     }
 
-    @Redirect(
-            method = "verifyInternalStructure(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/BlockPos;Z)Z",
+    @ModifyArg(
+            method = "verifyStructure(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lcn/dancingsnow/neoecoae/api/IECOTier;Lnet/minecraft/core/Direction;Lnet/minecraft/core/Direction;Lnet/minecraft/core/Direction;Lnet/minecraft/core/Direction;Lnet/minecraft/core/Direction;Lnet/minecraft/core/Direction;)Z",
             at = @At(
                     value = "INVOKE",
-                    target = "Lcn/dancingsnow/neoecoae/multiblock/calculator/NECraftingClusterCalculator;matchingStateFacing(Lcom/tterrag/registrate/util/entry/BlockEntry;Lnet/minecraft/core/Direction;)Ljava/util/function/BiPredicate;",
-                    ordinal = 0))
-    private BiPredicate<BlockState, BlockPos> aac$selectWorkerPredicate(
-            BlockEntry<? extends Block> originalWorker,
-            Direction expectedFacing) {
+                    target = "Lcn/dancingsnow/neoecoae/multiblock/calculator/NECraftingClusterCalculator;matchingStateFacing(Lnet/minecraft/core/Holder;Lnet/minecraft/core/Direction;)Ljava/util/function/BiPredicate;",
+                    ordinal = 0),
+            index = 0)
+    private Holder<Block> aac$selectWorkerBlock(Holder<Block> originalWorker) {
         // AAC構造では、元Workerを混ぜて上位性能だけ得る構成を拒否する。
-        if (aac$validatingVectorStructure) {
-            return (state, pos) -> state.is(AACBlocks.VECTOR_CRAFTING_WORKER.get())
-                    && state.getValue(BlockStateProperties.HORIZONTAL_FACING) == expectedFacing;
+        if (!aac$validatingVectorStructure) {
+            return originalWorker;
         }
-        return (state, pos) -> state.is(originalWorker.get())
-                && state.getValue(BlockStateProperties.HORIZONTAL_FACING) == expectedFacing;
+        return AACBlocks.VECTOR_CRAFTING_WORKER;
     }
 
     @Inject(

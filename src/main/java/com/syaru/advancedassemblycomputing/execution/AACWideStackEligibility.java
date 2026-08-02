@@ -28,7 +28,7 @@ public final class AACWideStackEligibility {
             return false;
         }
         // NBT・耐久値付きアイテムは同一性や返却状態が変化し得るため合算しない。
-        if (itemKey.hasTag() || itemKey.isDamaged()) {
+        if (!itemKey.getReadOnlyStack().getComponentsPatch().isEmpty() || itemKey.isDamaged()) {
             return false;
         }
         ItemStack itemStack = itemKey.toStack(1);

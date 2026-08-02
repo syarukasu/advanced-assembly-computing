@@ -1,9 +1,9 @@
 package com.syaru.advancedassemblycomputing.tier;
 
-import appeng.api.stacks.AEKeyType;
 import cn.dancingsnow.neoecoae.api.ECOTier;
 import cn.dancingsnow.neoecoae.api.IECOTier;
 import com.syaru.advancedassemblycomputing.config.AACConfig;
+import com.lowdragmc.lowdraglib2.gui.texture.IGuiTexture;
 import net.minecraft.resources.ResourceLocation;
 
 /**
@@ -73,13 +73,8 @@ public enum AACTier implements IECOTier {
     }
 
     @Override
-    public ResourceLocation getCraftingOverlayTexture() {
+    public IGuiTexture getCraftingOverlayTexture() {
         return ECOTier.L9.getCraftingOverlayTexture();
-    }
-
-    @Override
-    public int getStorageTotalTypes(AEKeyType keyType) {
-        return ECOTier.L9.getStorageTotalTypes(keyType);
     }
 
     @Override

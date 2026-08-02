@@ -1,6 +1,6 @@
 # Advanced Assembly Computing
 
-Advanced Assembly Computing (AAC) is a Forge 1.20.1 add-on that connects AE2
+Advanced Assembly Computing (AAC) is a NeoForge 1.21.1 add-on that connects AE2
 Crafting Optimizer's exact crafting-table transactions to Neo ECO AE
 Extension's real crafting multiblock.
 
@@ -15,14 +15,14 @@ one Worker, Thread, Pattern push, or Java loop per craft.
 
 ## Target Environment
 
-- Minecraft `1.20.1`
-- Forge `47.4.18+`
-- Java `17`
-- Applied Energistics 2 `15.4.10`
-- Neo ECO AE Extension `20.3.0`
-- AE2 Crafting Optimizer `1.5.4+` in the `1.5.x` series
-- Advanced Quantum Engineering `2.1.2` through `2.2.x` is optional
-- Dedicated server, singleplayer, and Arclight as a normal Forge mod
+- Minecraft `1.21.1`
+- NeoForge `21.1.247+`
+- Java `21`
+- Applied Energistics 2 `19.2.17`
+- Neo ECO AE Extension `21.1.1`
+- AE2 Crafting Optimizer `1.6.x`
+- Advanced Quantum Engineering `2.3.x` is optional
+- Dedicated server and singleplayer
 
 AE2, Neo ECO, ACO, and AAC are required on both client and server. AQE is not a
 code dependency. AAC's AQE progression recipes load only when AQE is present.
@@ -35,7 +35,7 @@ code dependency. AAC's AQE progression recipes load only when AQE is present.
 
 The structure keeps Neo ECO's original casing, interface, Pattern Bus, vent,
 hatches, orientation, mirroring, and size rules. An AAC controller requires AAC
-workers and AAC parallel cores in the corresponding rows; mixing L9 performance
+workers and AAC parallel cores in the corresponding rows; mixing lower-tier performance
 parts does not form the upper structure.
 
 ## Execution Model
@@ -168,7 +168,7 @@ throughput rather than the logical output coefficient.
 ## Optional AQE Recipes
 
 The upper controller, worker, and parallel-core recipes use AQE endgame
-components when AQE is installed. They are Forge-conditional recipes, so AAC
+components when AQE is installed. They are NeoForge-conditional recipes, so AAC
 can load without AQE.
 
 KubeJS may remove or replace these recipe IDs normally.
@@ -180,7 +180,7 @@ copy Neo ECO textures. AAC BlockItems add the normal enchantment glint.
 
 ## Build
 
-Build ACO `1.5.4` first, then:
+Build ACO `1.6.0` first, then:
 
 ```powershell
 .\gradlew.bat clean build --no-daemon

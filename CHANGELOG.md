@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-02
+
+### Added
+
+- Added the NeoForge 1.21.1 release line using Java 21.
+- Added pinned support for AE2 19.2.17, Neo ECO AE Extension 21.1.1, ACO
+  1.6.x, and optional AQE 2.3.x.
+
+### Changed
+
+- Migrated the production build, resources, persistence hooks, and Neo ECO
+  multiblock integration to NeoForge 21.1.247.
+- Kept AAC 1.0.x and its release artifacts as the Forge 1.20.1 line.
+
 ## [1.0.1] - 2026-07-29
 
 ### Fixed

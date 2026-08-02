@@ -6,7 +6,7 @@ import com.syaru.advancedassemblycomputing.execution.AACCraftingTableTerminalRec
 import com.syaru.ae2craftingoptimizer.api.batch.v2.PatternBatchV2Api;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.TransactionalPatternBatchAdapter;
 import com.syaru.ae2craftingoptimizer.config.ACOConfig;
-import net.minecraftforge.fml.ModList;
+import net.neoforged.fml.ModList;
 
 /** ACO公開APIの版検査とAAC Adapter登録を一元管理する。 */
 public final class AACIntegrationBootstrap {

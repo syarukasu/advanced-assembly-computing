@@ -9,16 +9,16 @@ import com.syaru.advancedassemblycomputing.blockentity.VectorCraftingControllerB
 import com.syaru.advancedassemblycomputing.blockentity.VectorCraftingParallelCoreBlockEntity;
 import com.syaru.advancedassemblycomputing.blockentity.VectorCraftingWorkerBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.registries.DeferredRegister;
-import net.minecraftforge.registries.ForgeRegistries;
-import net.minecraftforge.registries.RegistryObject;
+import net.minecraft.core.registries.Registries;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.neoforge.registries.DeferredHolder;
+import net.neoforged.neoforge.registries.DeferredRegister;
 
 public final class AACBlockEntities {
     private static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITIES =
-            DeferredRegister.create(ForgeRegistries.BLOCK_ENTITY_TYPES, AdvancedAssemblyComputing.MOD_ID);
+            DeferredRegister.create(Registries.BLOCK_ENTITY_TYPE, AdvancedAssemblyComputing.MOD_ID);
 
-    public static final RegistryObject<BlockEntityType<ECOCraftingSystemBlockEntity>> VECTOR_CRAFTING_CONTROLLER =
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<ECOCraftingSystemBlockEntity>> VECTOR_CRAFTING_CONTROLLER =
             BLOCK_ENTITIES.register(
                     "vector_crafting_controller",
                     () -> BlockEntityType.Builder.<ECOCraftingSystemBlockEntity>of(
@@ -26,7 +26,7 @@ public final class AACBlockEntities {
                                     AACBlocks.VECTOR_CRAFTING_CONTROLLER.get())
                             .build(null));
 
-    public static final RegistryObject<BlockEntityType<ECOCraftingParallelCoreBlockEntity>>
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<ECOCraftingParallelCoreBlockEntity>>
             VECTOR_CRAFTING_PARALLEL_CORE = BLOCK_ENTITIES.register(
                     "vector_crafting_parallel_core",
                     () -> BlockEntityType.Builder.<ECOCraftingParallelCoreBlockEntity>of(
@@ -34,7 +34,7 @@ public final class AACBlockEntities {
                                     AACBlocks.VECTOR_CRAFTING_PARALLEL_CORE.get())
                             .build(null));
 
-    public static final RegistryObject<BlockEntityType<ECOCraftingWorkerBlockEntity>> VECTOR_CRAFTING_WORKER =
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<ECOCraftingWorkerBlockEntity>> VECTOR_CRAFTING_WORKER =
             BLOCK_ENTITIES.register(
                     "vector_crafting_worker",
                     () -> BlockEntityType.Builder.<ECOCraftingWorkerBlockEntity>of(

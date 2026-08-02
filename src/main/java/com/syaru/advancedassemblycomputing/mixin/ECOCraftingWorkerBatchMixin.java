@@ -1,12 +1,5 @@
 package com.syaru.advancedassemblycomputing.mixin;
 
-import appeng.api.config.Actionable;
-import appeng.api.networking.IGrid;
-import appeng.api.networking.security.IActionSource;
-import appeng.api.stacks.AEKey;
-import appeng.api.stacks.KeyCounter;
-import appeng.api.storage.MEStorage;
-import appeng.me.service.CraftingService;
 import cn.dancingsnow.neoecoae.api.me.ECOCraftingThread;
 import cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingSystemBlockEntity;
 import cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingWorkerBlockEntity;
@@ -17,13 +10,13 @@ import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchWorker
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchMode;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchRequest;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchSnapshot;
-import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.core.HolderLookup;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -47,10 +40,6 @@ public abstract class ECOCraftingWorkerBatchMixin
 
     @Shadow
     private int nextFreeThreadIndex;
-
-    @Shadow
-    @Final
-    private IActionSource actionSource;
 
     @Unique
     private final AACCraftingTableTerminalReceiptLedger
@@ -300,116 +289,10 @@ public abstract class ECOCraftingWorkerBatchMixin
         return false;
     }
 
-    @Inject(
-            method = "flushCompletedOutputs",
-            at = @At("HEAD"),
-            cancellable = true)
-    private void aac$flushManagedOutputsPerThread(
-            CallbackInfo callbackInfo) {
-        boolean containsReadyManagedBatch =
-                false;
-        /*
-         * AAC仕事が完了したtickだけNeoECOの全Thread合算を置き換える。
-         * 通常Threadだけのtickは親MODの高速経路をそのまま使う。
-         */
-        for (ECOCraftingThread thread :
-                craftingThreads) {
-            if (thread.isOutputReady()
-                    && thread
-                            instanceof AACCraftingTableBatchThread batchThread
-                    && batchThread
-                            .aac$isManagedCraftingTableBatch()) {
-                containsReadyManagedBatch =
-                        true;
-                break;
-            }
-        }
-        if (!containsReadyManagedBatch) {
-            return;
-        }
-
-        ECOCraftingWorkerBlockEntity self =
-                (ECOCraftingWorkerBlockEntity) (Object) this;
-        IGrid grid =
-                self.getMainNode()
-                        .getGrid();
-        // Grid不在時は出力をThread内へ保持し、次tickの再試行を待つ。
-        if (grid == null) {
-            callbackInfo.cancel();
-            return;
-        }
-
-        CraftingService craftingService =
-                (CraftingService) grid.getCraftingService();
-        MEStorage storage =
-                grid.getStorageService()
-                        .getInventory();
-        /*
-         * 各Threadを別々に搬出する。
-         * 同じキーの巨大long出力が複数本あっても、親MODのcombined KeyCounterで
-         * 加算overflowさせない。
-         */
-        for (ECOCraftingThread thread :
-                craftingThreads) {
-            if (!thread.isOutputReady()) {
-                continue;
-            }
-            /*
-             * BigInteger出力はACO親台帳へReceiptとして返す。
-             * 代表一回分を通常ME Storageへ流すと複製になるため触れない。
-             */
-            if (thread
-                            instanceof AACCraftingTableBatchThread batchThread
-                    && batchThread
-                                    .aac$isManagedCraftingTableBatch()
-                            && batchThread
-                                            .aac$craftingTableBatchMode()
-                                    == CraftingTableBatchMode
-                                            .BIG_INTEGER_JOB) {
-                continue;
-            }
-
-            KeyCounter acceptedOutputs =
-                    new KeyCounter();
-            // このThreadの各出力を、待機中CPU優先で一度ずつ搬出する。
-            for (Object2LongMap.Entry<AEKey> output :
-                    thread.collectOutputItems()) {
-                long requested =
-                        output.getLongValue();
-                long accepted =
-                        craftingService.insertIntoCpus(
-                                output.getKey(),
-                                requested,
-                                Actionable.MODULATE);
-                // CPUが待っていない余剰だけを通常ME Storageへ戻す。
-                if (accepted < requested) {
-                    accepted +=
-                            storage.insert(
-                                    output.getKey(),
-                                    requested - accepted,
-                                    Actionable.MODULATE,
-                                    actionSource);
-                }
-                // 実際に受理された正数だけをThread完了処理へ渡す。
-                if (accepted > 0L) {
-                    acceptedOutputs.add(
-                            output.getKey(),
-                            accepted);
-                }
-            }
-            thread.applyOutputFlush(
-                    acceptedOutputs);
-        }
-        callbackInfo.cancel();
-    }
-
-    /*
-     * このMixinはNeoECOクラス全体をremapしないため、Minecraft由来の
-     * saveAdditionalだけはNeoECO 20.3.0配布JAR上のSRG名を明示する。
-     */
-    @Inject(method = "m_183515_", at = @At("TAIL"))
+    @Inject(method = "saveAdditional", at = @At("TAIL"))
     private void aac$saveTerminalReceipts(
             CompoundTag data,
+            HolderLookup.Provider registries,
             CallbackInfo callbackInfo) {
         // 空台帳は通常NeoECO WorkerのNBTを増やさない。
         if (!aac$terminalReceipts.isEmpty()) {
@@ -422,6 +305,7 @@ public abstract class ECOCraftingWorkerBatchMixin
     @Inject(method = "loadTag", at = @At("TAIL"))
     private void aac$loadTerminalReceipts(
             CompoundTag data,
+            HolderLookup.Provider registries,
             CallbackInfo callbackInfo) {
         // Thread一覧は親MODが復元するため、実行時索引だけを空にして遅延再構築する。
         aac$threadsByTransaction.clear();

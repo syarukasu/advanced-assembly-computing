@@ -1,5 +1,6 @@
 package com.syaru.advancedassemblycomputing.mixin;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,14 +18,13 @@ class NeoEcoRuntimeMethodContractTest {
             "cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingWorkerBlockEntity";
     private static final String PATTERN_BUS_CLASS =
             "cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingPatternBusBlockEntity";
-    /*
-     * NeoECO 20.3.0の配布JARでは、BlockEntity#saveAdditionalがこのSRG名になる。
-     * AACのremap=false Mixinも同じ名前を指定しなければならない。
-     */
-    private static final String SAVE_ADDITIONAL_SRG = "m_183515_";
-    /** CompoundTagを一つ受け取って値を返さない、NeoECO保存・読込メソッドの記述子。 */
+    private static final String AE_NETWORKED_BLOCK_ENTITY_CLASS =
+            "appeng.blockentity.grid.AENetworkedBlockEntity";
+    private static final String CLUSTER_CALCULATOR_CLASS =
+            "cn.dancingsnow.neoecoae.multiblock.calculator.NECraftingClusterCalculator";
+    /** 1.21.1のNBT保存・読込はRegistry Providerも受け取る。 */
     private static final String PERSISTENCE_DESCRIPTOR =
-            "(Lnet/minecraft/nbt/CompoundTag;)V";
+            "(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)V";
 
     @Test
     void productionNeoEcoWorkerExposesPersistenceTargets() throws Exception {
@@ -33,7 +33,59 @@ class NeoEcoRuntimeMethodContractTest {
 
     @Test
     void productionNeoEcoPatternBusExposesPersistenceTargets() throws Exception {
-        assertPersistenceTargets(PATTERN_BUS_CLASS);
+        assertNotNull(
+                Class.forName(PATTERN_BUS_CLASS),
+                "NeoECO production Pattern Bus is missing");
+        assertPersistenceTargets(AE_NETWORKED_BLOCK_ENTITY_CLASS);
+    }
+
+    @Test
+    void productionNeoEcoWorkerPredicateRemainsInVerifyStructure() throws Exception {
+        String resourceName = CLUSTER_CALCULATOR_CLASS.replace('.', '/') + ".class";
+        InputStream classBytes =
+                NeoEcoRuntimeMethodContractTest.class
+                        .getClassLoader()
+                        .getResourceAsStream(resourceName);
+        assertNotNull(classBytes, "NeoECO cluster calculator is missing");
+
+        int[] matchingStateFacingCalls = {0};
+        try (InputStream input = classBytes) {
+            new ClassReader(input)
+                    .accept(
+                            new ClassVisitor(Opcodes.ASM9) {
+                                @Override
+                                public MethodVisitor visitMethod(
+                                        int access,
+                                        String name,
+                                        String descriptor,
+                                        String signature,
+                                        String[] exceptions) {
+                                    // Worker判定を行う実メソッドだけを検査する。
+                                    if (!name.equals("verifyStructure")) {
+                                        return null;
+                                    }
+                                    return new MethodVisitor(Opcodes.ASM9) {
+                                        @Override
+                                        public void visitMethodInsn(
+                                                int opcode,
+                                                String owner,
+                                                String invokedName,
+                                                String invokedDescriptor,
+                                                boolean isInterface) {
+                                            if (owner.equals(CLUSTER_CALCULATOR_CLASS.replace('.', '/'))
+                                                    && invokedName.equals("matchingStateFacing")) {
+                                                matchingStateFacingCalls[0]++;
+                                            }
+                                        }
+                                    };
+                                }
+                            },
+                            ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+        }
+
+        // Worker、Vent、Pattern Bus、残りのFacing部品の4呼出しを前提にし、
+        // ordinal=0のWorker判定が上流更新でずれる変更を検出する。
+        assertEquals(4, matchingStateFacingCalls[0]);
     }
 
     private static void assertPersistenceTargets(String className) throws Exception {
@@ -72,7 +124,7 @@ class NeoEcoRuntimeMethodContractTest {
 
         assertTrue(
                 methods.contains(
-                        SAVE_ADDITIONAL_SRG
+                        "saveAdditional"
                                 + PERSISTENCE_DESCRIPTOR),
                 className + " does not expose the production save target");
         assertTrue(
