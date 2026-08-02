@@ -12,8 +12,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
@@ -144,7 +145,7 @@ final class AACCraftingTableTerminalReceiptLedgerTest {
         }
 
         @Override
-        public CompoundTag toTag() {
+        public CompoundTag toTag(HolderLookup.Provider registries) {
             return new CompoundTag();
         }
 
@@ -162,7 +163,7 @@ final class AACCraftingTableTerminalReceiptLedgerTest {
 
         @Override
         public void writeToPacket(
-                FriendlyByteBuf buffer) {
+                RegistryFriendlyByteBuf buffer) {
             // Packet処理を試験しないため書き込まない。
         }
 
@@ -179,6 +180,11 @@ final class AACCraftingTableTerminalReceiptLedgerTest {
                 Level level,
                 BlockPos pos) {
             // ワールド処理を試験しないためドロップを作らない。
+        }
+
+        @Override
+        public boolean hasComponents() {
+            return false;
         }
     }
 }

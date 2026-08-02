@@ -4,6 +4,7 @@ import appeng.api.stacks.AEKey;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchRequest;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchSnapshot;
 import com.syaru.ae2craftingoptimizer.api.vector.PreparedVectorBatchCodec;
+import com.syaru.ae2craftingoptimizer.lifecycle.ACORegistryAccess;
 import java.math.BigInteger;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -275,7 +276,7 @@ public final class AACCraftingTableTerminalReceiptLedger {
             encoded.put(
                     "key",
                     entry.getKey()
-                            .toTagGeneric());
+                            .toTagGeneric(ACORegistryAccess.require()));
             PreparedVectorBatchCodec.putNonNegative(
                     encoded,
                     "amount",
@@ -309,6 +310,7 @@ public final class AACCraftingTableTerminalReceiptLedger {
                             index);
             AEKey key =
                     AEKey.fromTagGeneric(
+                            ACORegistryAccess.require(),
                             encoded.getCompound(
                                     "key"));
             BigInteger amount =

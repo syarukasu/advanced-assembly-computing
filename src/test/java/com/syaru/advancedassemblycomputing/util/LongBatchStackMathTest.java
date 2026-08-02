@@ -11,8 +11,9 @@ import appeng.api.stacks.GenericStack;
 import appeng.api.stacks.KeyCounter;
 import java.util.List;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
@@ -132,7 +133,7 @@ class LongBatchStackMathTest {
         }
 
         @Override
-        public CompoundTag toTag() {
+        public CompoundTag toTag(HolderLookup.Provider registries) {
             return new CompoundTag();
         }
 
@@ -148,7 +149,7 @@ class LongBatchStackMathTest {
 
         @Override
         public void writeToPacket(
-                FriendlyByteBuf buffer) {
+                RegistryFriendlyByteBuf buffer) {
         }
 
         @Override
@@ -162,6 +163,11 @@ class LongBatchStackMathTest {
                 List<ItemStack> drops,
                 Level level,
                 BlockPos pos) {
+        }
+
+        @Override
+        public boolean hasComponents() {
+            return false;
         }
     }
 }

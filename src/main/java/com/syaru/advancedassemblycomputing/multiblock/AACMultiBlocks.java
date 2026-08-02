@@ -13,19 +13,31 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.Vec3;
 
 public final class AACMultiBlocks {
+    /** NeoECO 21.1.1のクラフティング設備で、反復部を除いた固定長。 */
+    private static final int CRAFTING_SYSTEM_FIXED_LENGTH = 4;
+    /** NeoECO 21.1.1のServer Configが定義する既定の設備最大長。 */
+    private static final int NEO_ECO_DEFAULT_MAXIMUM_LENGTH = 15;
+    /** MultiBlockDefinitionが許可する最小反復長。 */
+    private static final int MINIMUM_EXPAND_LENGTH = 1;
     private static volatile MultiBlockDefinition craftingSystem;
+    private static volatile int craftingSystemExpandMax = Integer.MIN_VALUE;
 
     private AACMultiBlocks() {
     }
 
     public static synchronized void initialize() {
-        // Common Setupが重複通知されても同じ定義を二重登録しない。
-        if (craftingSystem != null) {
+        refreshCraftingSystemDefinition();
+    }
+
+    private static void refreshCraftingSystemDefinition() {
+        int desiredExpandMax = resolveExpandMax(NEConfig.craftingSystemMaxLength);
+        // Config値が変わっていなければ、同じ定義を再生成しない。
+        if (craftingSystem != null && craftingSystemExpandMax == desiredExpandMax) {
             return;
         }
 
         BlockState casing = NEBlocks.CRAFTING_CASING.getDefaultState();
-        // 座標・反復方向・最大長はNeo ECO 20.3.0のL9設計図をそのまま保つ。
+        // 座標と反復方向はNeoECO 21.1.1のL9設計図をそのまま保つ。
         craftingSystem = MultiBlockDefinition.builder(
                         AACBlocks.VECTOR_CRAFTING_CONTROLLER.get().builtInRegistryHolder())
                 .setBlock(pos(1, 1, 0), AACBlocks.VECTOR_CRAFTING_CONTROLLER.get().defaultBlockState())
@@ -83,7 +95,7 @@ public final class AACMultiBlocks {
                 .setBlockWithRepeatShifted(pos(-1, 1, 1), Direction.WEST, 0, casing)
                 .setBlockWithRepeatShifted(pos(-1, 2, 1), Direction.WEST, 0, casing)
                 .expandMin(1)
-                .expandMax(NEConfig.craftingSystemMaxLength - 4)
+                .expandMax(desiredExpandMax)
                 .onFormed((blockPos, level) -> {
                     BlockState state = level.getBlockState(blockPos);
                     // Neo ECOの形成表示を持つ構成ブロックだけをformedへ切り替える。
@@ -100,14 +112,28 @@ public final class AACMultiBlocks {
                     level.setBlockAndUpdate(blockPos, state);
                 })
                 .create();
+        craftingSystemExpandMax = desiredExpandMax;
     }
 
-    public static MultiBlockDefinition craftingSystem() {
-        // Common Setupより前のデータ参照だけはNeo ECO L9定義へ安全に退避する。
-        if (craftingSystem == null) {
-            return cn.dancingsnow.neoecoae.all.NEMultiBlocks.CRAFTING_SYSTEM_L9;
-        }
+    public static synchronized MultiBlockDefinition craftingSystem() {
+        /*
+         * NeoECOのServer ConfigはCommon Setupより後に確定する場合がある。
+         * UI表示・形成判定の直前に現在値を再確認し、古い上限を使い続けない。
+         */
+        refreshCraftingSystemDefinition();
         return craftingSystem;
+    }
+
+    static int resolveExpandMax(int configuredMaximumLength) {
+        /*
+         * Config未読時のstatic intは0になる。0から固定長を引いて負数を作らず、
+         * NeoECO既定長を使ってCommon Setup中にも有効な定義を生成する。
+         */
+        if (configuredMaximumLength
+                < CRAFTING_SYSTEM_FIXED_LENGTH + MINIMUM_EXPAND_LENGTH) {
+            return NEO_ECO_DEFAULT_MAXIMUM_LENGTH - CRAFTING_SYSTEM_FIXED_LENGTH;
+        }
+        return configuredMaximumLength - CRAFTING_SYSTEM_FIXED_LENGTH;
     }
 
     private static BlockPos pos(int x, int y, int z) {

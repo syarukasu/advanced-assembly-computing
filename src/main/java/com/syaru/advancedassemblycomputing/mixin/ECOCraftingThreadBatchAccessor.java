@@ -11,8 +11,8 @@ import org.spongepowered.asm.mixin.gen.Invoker;
 /** NeoECOの実Thread開始・終了・冷却材処理だけをAACへ公開する。 */
 @Mixin(value = ECOCraftingThread.class, remap = false)
 public interface ECOCraftingThreadBatchAccessor {
-    @Invoker("startWork")
-    void aac$invokeStartWork(
+    @Invoker("startBatchWork")
+    void aac$invokeStartBatchWork(
             List<GenericStack> outputs,
             List<GenericStack> inputs,
             List<GenericStack> remaining,

@@ -2,7 +2,6 @@ package com.syaru.advancedassemblycomputing.mixin;
 
 import appeng.api.stacks.AEKey;
 import appeng.api.stacks.GenericStack;
-import appeng.api.stacks.KeyCounter;
 import appeng.api.storage.MEStorage;
 import appeng.blockentity.crafting.IMolecularAssemblerSupportedPattern;
 import cn.dancingsnow.neoecoae.api.me.ECOCraftingThread;
@@ -16,20 +15,21 @@ import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchReques
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchSnapshot;
 import com.syaru.ae2craftingoptimizer.api.vector.ExactStack;
 import com.syaru.ae2craftingoptimizer.api.vector.PreparedVectorBatchCodec;
-import it.unimi.dsi.fastutil.objects.Object2LongMap;
+import com.syaru.ae2craftingoptimizer.lifecycle.ACORegistryAccess;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.inventory.TransientCraftingContainer;
 import net.minecraft.world.item.ItemStack;
+import appeng.api.networking.ticking.TickRateModulation;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -64,6 +64,9 @@ public abstract class ECOCraftingThreadBatchMixin
 
     @Shadow
     private boolean isBusy;
+
+    @Shadow
+    private boolean outputsReady;
 
     @Unique
     private UUID aac$batchTransactionId;
@@ -222,7 +225,7 @@ public abstract class ECOCraftingThreadBatchMixin
             PreparedCraftingTableWork prepared,
             UUID craftingJobId) {
         ((ECOCraftingThreadBatchAccessor) (Object) this)
-                .aac$invokeStartWork(
+                .aac$invokeStartBatchWork(
                         prepared.outputs(),
                         prepared.inputs(),
                         prepared.remaining(),
@@ -268,8 +271,7 @@ public abstract class ECOCraftingThreadBatchMixin
         }
         ECOCraftingThread self =
                 (ECOCraftingThread) (Object) this;
-        boolean ready =
-                self.isOutputReady();
+        boolean ready = outputsReady;
         return Optional.of(
                 new CraftingTableBatchSnapshot(
                         transactionId,
@@ -297,27 +299,22 @@ public abstract class ECOCraftingThreadBatchMixin
     public boolean aac$acknowledgeCraftingTableBatch(
             UUID transactionId,
             String payloadDigest) {
-        ECOCraftingThread self =
-                (ECOCraftingThread) (Object) this;
         if (aac$batchMode
                         != CraftingTableBatchMode.BIG_INTEGER_JOB
-                || !self.isOutputReady()
+                || !outputsReady
                 || !aac$ownsCraftingTableBatch(
                         transactionId,
                         payloadDigest)) {
             return false;
         }
-        KeyCounter representativeOutputs =
-                new KeyCounter();
-        // NeoECOの完了処理へ「代表出力を受理済み」と渡し、MEへは挿入しない。
-        for (Object2LongMap.Entry<AEKey> output :
-                self.collectOutputItems()) {
-            representativeOutputs.add(
-                    output.getKey(),
-                    output.getLongValue());
-        }
-        self.applyOutputFlush(
-                representativeOutputs);
+        ECOCraftingThread self =
+                (ECOCraftingThread) (Object) this;
+        int occupiedSlots = Math.max(1, self.getOccupiedThreadSlots());
+        // ACOが正確なBigInteger出力を会計済みなので、代表出力をMEへ挿入せず解放する。
+        ((ECOCraftingThreadBatchAccessor) (Object) this)
+                .aac$invokeClearWork();
+        worker.onThreadStop(occupiedSlots);
+        worker.setChanged();
         return true;
     }
 
@@ -350,27 +347,7 @@ public abstract class ECOCraftingThreadBatchMixin
     }
 
     @Inject(
-            method = "recoverOrphanedWorkToNetwork",
-            at = @At("HEAD"),
-            cancellable = true)
-    private void aac$keepBigIntegerOrphanOutOfNetwork(
-            Set<UUID> activeJobIds,
-            MEStorage storage,
-            CallbackInfoReturnable<Boolean> callbackInfo) {
-        /*
-         * BigInteger Threadのスタックは表示・進捗用の一回分であり、
-         * 通常回収へ流すと実在庫を複製する。
-         */
-        if (aac$isBigIntegerBatch()) {
-            callbackInfo.setReturnValue(false);
-        }
-    }
-
-    @Inject(
-            method = {
-                "recoverInputsToNetwork",
-                "recoverUnfinishedInputsToNetwork"
-            },
+            method = "recoverInputsToNetwork",
             at = @At("HEAD"),
             cancellable = true)
     private void aac$keepBigIntegerInputsOutOfNetwork(
@@ -380,6 +357,19 @@ public abstract class ECOCraftingThreadBatchMixin
         if (aac$isBigIntegerBatch()) {
             callbackInfo.setReturnValue(false);
         }
+    }
+
+    @Inject(
+            method = "ejectOutputsSafely",
+            at = @At("HEAD"),
+            cancellable = true)
+    private void aac$holdBigIntegerOutputForAccounting(
+            CallbackInfoReturnable<TickRateModulation> callbackInfo) {
+        if (!aac$isBigIntegerBatch()) {
+            return;
+        }
+        // BigInteger出力はACOが正本を会計するまでThread内へ保持する。
+        callbackInfo.setReturnValue(TickRateModulation.URGENT);
     }
 
     @Inject(
@@ -408,6 +398,7 @@ public abstract class ECOCraftingThreadBatchMixin
 
     @Inject(method = "serializeNBT", at = @At("RETURN"))
     private void aac$saveBatchSidecar(
+            HolderLookup.Provider registries,
             CallbackInfoReturnable<CompoundTag> callbackInfo) {
         if (!aac$isManagedCraftingTableBatch()) {
             return;
@@ -441,6 +432,7 @@ public abstract class ECOCraftingThreadBatchMixin
 
     @Inject(method = "deserializeNBT", at = @At("TAIL"))
     private void aac$loadBatchSidecar(
+            HolderLookup.Provider registries,
             CompoundTag data,
             CallbackInfo callbackInfo) {
         aac$clearSidecar();
@@ -540,7 +532,7 @@ public abstract class ECOCraftingThreadBatchMixin
             stack.put(
                     "key",
                     entry.getKey()
-                            .toTagGeneric());
+                            .toTagGeneric(ACORegistryAccess.require()));
             PreparedVectorBatchCodec
                     .putNonNegative(
                             stack,
@@ -573,6 +565,7 @@ public abstract class ECOCraftingThreadBatchMixin
                     list.getCompound(index);
             AEKey key =
                     AEKey.fromTagGeneric(
+                            ACORegistryAccess.require(),
                             entry.getCompound(
                                     "key"));
             BigInteger amount =

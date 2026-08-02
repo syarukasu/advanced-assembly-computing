@@ -9,20 +9,18 @@ import com.syaru.advancedassemblycomputing.registry.AACBlocks;
 import com.syaru.advancedassemblycomputing.registry.AACCreativeTabs;
 import com.syaru.advancedassemblycomputing.registry.AACItems;
 import com.syaru.advancedassemblycomputing.registry.AACTiers;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.fml.ModLoadingContext;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.config.ModConfig;
-import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
-import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import org.slf4j.Logger;
 
 @Mod(AdvancedAssemblyComputing.MOD_ID)
 public final class AdvancedAssemblyComputing {
     public static final String MOD_ID = "advanced_assembly_computing";
     public static final Logger LOGGER = LogUtils.getLogger();
-    public AdvancedAssemblyComputing() {
-        IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
+    public AdvancedAssemblyComputing(IEventBus modBus, ModContainer container) {
         AACBlocks.register(modBus);
         AACItems.register(modBus);
         AACBlockEntities.register(modBus);
@@ -31,7 +29,7 @@ public final class AdvancedAssemblyComputing {
         modBus.addListener(this::commonSetup);
 
         // Common Configを使い、専用サーバーとクライアントで同じconfigフォルダ構成にする。
-        ModLoadingContext.get().registerConfig(
+        container.registerConfig(
                 ModConfig.Type.COMMON,
                 AACConfig.SPEC,
                 "advanced_assembly_computing-common.toml");

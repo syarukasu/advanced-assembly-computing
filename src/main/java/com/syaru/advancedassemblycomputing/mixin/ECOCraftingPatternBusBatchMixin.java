@@ -5,6 +5,7 @@ import cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingWorkerBlockEnti
 import com.syaru.advancedassemblycomputing.blockentity.VectorCraftingControllerBlockEntity;
 import com.syaru.advancedassemblycomputing.config.AACConfig;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchWorker;
+import com.syaru.advancedassemblycomputing.execution.AACPatternBusPersistentState;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.NativeBatchReceipt;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.NativeBatchReceiptStore;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.ProviderOwnedPatternBatchTarget;
@@ -18,13 +19,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * NeoECO Pattern Busを、ACOの単一一括作業台Targetへ拡張する。
@@ -33,7 +32,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class ECOCraftingPatternBusBatchMixin
         implements ProviderOwnedPatternBatchTarget,
                 CraftingTableBatchTarget,
-                NativeBatchReceiptStore {
+                NativeBatchReceiptStore,
+                AACPatternBusPersistentState {
     private static final String AAC_RECEIPTS_NBT =
             "aacCraftingTableBatchReceipts";
 
@@ -286,14 +286,10 @@ public abstract class ECOCraftingPatternBusBatchMixin
         return removed;
     }
 
-    /*
-     * このMixinはNeoECOクラス全体をremapしないため、Minecraft由来の
-     * saveAdditionalだけはNeoECO 20.3.0配布JAR上のSRG名を明示する。
-     */
-    @Inject(method = "m_183515_", at = @At("TAIL"))
-    private void aac$saveBatchReceipts(
+    @Override
+    public void aac$savePatternBusBatchState(
             CompoundTag data,
-            CallbackInfo callbackInfo) {
+            HolderLookup.Provider registries) {
         // 空台帳はNBTへ書かず、通常Pattern Busの保存量を増やさない。
         if (!aac$batchReceipts.isEmpty()) {
             data.put(
@@ -302,10 +298,10 @@ public abstract class ECOCraftingPatternBusBatchMixin
         }
     }
 
-    @Inject(method = "loadTag", at = @At("TAIL"))
-    private void aac$loadBatchReceipts(
+    @Override
+    public void aac$loadPatternBusBatchState(
             CompoundTag data,
-            CallbackInfo callbackInfo) {
+            HolderLookup.Provider registries) {
         // Worker一覧は親MODが復元するため、実行時索引だけを空にして遅延再構築する。
         aac$workersByTransaction.clear();
         aac$batchReceipts.load(

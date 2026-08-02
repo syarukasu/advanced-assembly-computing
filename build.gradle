@@ -1,5 +1,6 @@
 plugins {
-    id 'net.minecraftforge.gradle' version '6.0.54'
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.143'
 }
 
 group = mod_group
@@ -10,125 +11,95 @@ base {
 }
 
 java {
-    toolchain.languageVersion = JavaLanguageVersion.of(17)
-}
-
-minecraft {
-    mappings channel: 'official', version: '1.20.1'
-
-    runs {
-        client {
-            workingDirectory project.file('run')
-            property 'forge.logging.markers', 'REGISTRIES'
-            property 'forge.logging.console.level', 'info'
-            mods {
-                advanced_assembly_computing {
-                    source sourceSets.main
-                }
-            }
-        }
-        server {
-            workingDirectory project.file('run-server')
-            property 'forge.logging.markers', 'REGISTRIES'
-            property 'forge.logging.console.level', 'info'
-            args '--nogui'
-            mods {
-                advanced_assembly_computing {
-                    source sourceSets.main
-                }
-            }
-        }
-    }
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
 }
 
 repositories {
     mavenCentral()
-    flatDir {
-        // 再難読化済みACO配布JARをForgeGradleのdeobf対象として解決する。
-        dirs '../ae2-crafting-optimizer/build/libs'
-    }
     maven {
-        name = 'ModMaven'
-        url = 'https://modmaven.dev/'
-        content {
-            includeGroup 'appeng'
-        }
-    }
-    maven {
-        name = 'Registrate'
-        url = 'https://maven.tterrag.com/'
-        content {
-            includeGroup 'com.tterrag.registrate'
-        }
-    }
-    maven {
-        name = 'FirstDarkDev'
-        url = 'https://maven.firstdark.dev/snapshots'
-        content {
-            includeGroup 'com.lowdragmc.ldlib'
-        }
+        name = 'Registrate releases'
+        url = uri('https://maven.gegy.dev/releases')
     }
 }
 
-dependencies {
-    minecraft 'net.minecraftforge:forge:1.20.1-47.4.18'
+neoForge {
+    version = neo_version
 
-    def localModsDir = file(findProperty('aacLocalModsDir') ?: '../../mods')
-    def localAe2 = new File(localModsDir, 'appliedenergistics2-forge-15.4.10.jar')
-    // 有効JARとランチャーが無効化したJARのどちらからでも、検証済みNeo ECO 20.3.0を解決する。
-    def localNeoEco = [
-        new File(localModsDir, 'neoecoae-20.3.0.jar'),
-        new File(localModsDir, 'neoecoae-20.3.0.jar.disabled')
-    ].find { it.isFile() }
-    def localLdlib = new File(localModsDir, 'ldlib-forge-1.20.1-1.0.50.jar')
-    def localAco = file('../ae2-crafting-optimizer/build/libs/ae2-crafting-optimizer-1.5.5.jar')
-    def localAcoDependency = project.dependencies.create(
-            group: 'local.aco',
-            name: 'ae2-crafting-optimizer',
-            version: '1.5.5')
-
-    // 必須の検証済みArtifactが一つでも欠ける場合は、推測したAPIでビルドを続行しない。
-    if (!localAe2.isFile() || localNeoEco == null || !localLdlib.isFile() || !localAco.isFile()) {
-        throw new GradleException(
-                'AAC requires the exact local AE2, Neo ECO, LDLib, and ACO 1.5.5 artifacts documented by this project.')
+    parchment {
+        minecraftVersion = parchment_minecraft_version
+        mappingsVersion = parchment_mappings_version
     }
 
-    implementation files(localAe2)
-    implementation files(localNeoEco)
-    compileOnly files(localLdlib)
-    /*
-     * ACOの配布JARは再難読化済みなので、開発・単体試験ではForgeGradleに
-     * Minecraft参照を公式Mappingsへ戻させる。
-     */
-    compileOnly fg.deobf(localAcoDependency)
-    // Exact Vector Receiptの単体試験でも、配布時と同じACO API v4を使用する。
-    testImplementation fg.deobf(localAcoDependency)
-    compileOnly 'com.tterrag.registrate:Registrate:MC1.20-1.3.3'
+    runs {
+        client {
+            client()
+            gameDirectory = file('run')
+        }
+        server {
+            server()
+            gameDirectory = file('run-server')
+            programArgument '--nogui'
+        }
+        configureEach {
+            logLevel = org.slf4j.event.Level.INFO
+        }
+    }
 
-    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+    mods {
+        advanced_assembly_computing {
+            sourceSet(sourceSets.main)
+        }
+    }
 
-    testImplementation platform('org.junit:junit-bom:5.10.3')
+    addModdingDependenciesTo sourceSets.test
+}
+
+dependencies {
+    def localModsDir = file(findProperty('aacLocalModsDir') ?: '../../mods')
+    def requiredMod = { String fileName ->
+        File dependency = new File(localModsDir, fileName)
+        if (!dependency.isFile()) {
+            throw new GradleException("Required 1.21.1 dependency is missing: ${dependency}")
+        }
+        dependency
+    }
+
+    implementation files(requiredMod('appliedenergistics2-19.2.17.jar'))
+    implementation files(requiredMod('guideme-21.1.17.jar'))
+    implementation files(requiredMod('neoecoae-21.1.1.jar'))
+    implementation files(requiredMod('ldlib2-neoforge-1.21.1-2.2.32-all.jar'))
+    compileOnly 'com.tterrag.registrate:Registrate:MC1.21.1-1.4.8'
+
+    def acoJar = file('../ae2-crafting-optimizer/build/libs/ae2-crafting-optimizer-1.6.0.jar')
+    if (!acoJar.isFile()) {
+        throw new GradleException("Required ACO 1.21.1 build is missing: ${acoJar}")
+    }
+    compileOnly files(acoJar)
+    testImplementation files(acoJar)
+
+    annotationProcessor 'org.spongepowered:mixin:0.8.7:processor'
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 
-test {
+tasks.named('test', Test).configure {
     useJUnitPlatform()
 }
 
 processResources {
     inputs.property 'version', project.version
-    filesMatching('META-INF/mods.toml') {
+    filesMatching('META-INF/neoforge.mods.toml') {
         expand 'file': ['jarVersion': project.version]
     }
 }
 
 jar {
-    // 配布JAR内のMinecraft参照を、本番環境で使われる難読化名へ必ず変換する。
-    finalizedBy 'reobfJar'
     from('LICENSE') {
         into 'META-INF'
     }
@@ -137,14 +108,14 @@ jar {
     }
     manifest {
         attributes([
-            'Specification-Title': mod_id,
-            'Specification-Vendor': 'syaru',
-            'Specification-Version': '1',
-            'Implementation-Title': project.name,
-            'Implementation-Version': project.version,
-            'Implementation-Vendor': 'syaru',
-            'Implementation-License': 'GPL-3.0-only',
-            'MixinConfigs': 'advanced_assembly_computing.mixins.json'
+                'Specification-Title'    : mod_id,
+                'Specification-Vendor'   : 'syaru',
+                'Specification-Version'  : '1',
+                'Implementation-Title'   : project.name,
+                'Implementation-Version' : project.version,
+                'Implementation-Vendor'  : 'syaru',
+                'Implementation-License' : 'GPL-3.0-only',
+                'MixinConfigs'            : 'advanced_assembly_computing.mixins.json'
         ])
     }
 }

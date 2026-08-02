@@ -15,6 +15,7 @@ import java.util.Objects;
 import java.util.Optional;
 import net.minecraft.world.inventory.TransientCraftingContainer;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.CraftingInput;
 import net.minecraft.world.level.Level;
 
 /**
@@ -24,6 +25,9 @@ import net.minecraft.world.level.Level;
  * 反復回数ではなく、証明済み入出力へ掛ける係数としてだけ扱う。</p>
  */
 public final class VerifiedCraftingTableRecipe {
+    // AE2の分子組立パターンが使う作業台は3 x 3固定。
+    private static final int CRAFTING_GRID_SIZE = 3;
+
     private VerifiedCraftingTableRecipe() {
     }
 
@@ -47,8 +51,9 @@ public final class VerifiedCraftingTableRecipe {
         pattern.fillCraftingGrid(
                 assemblyInputs,
                 craftingInventory::setItem);
+        CraftingInput craftingInput = toCraftingInput(craftingInventory);
         ItemStack assembled = pattern.assemble(
-                craftingInventory,
+                craftingInput,
                 level);
         // 空成果物は有効な作業台実行として所有できない。
         if (assembled.isEmpty()) {
@@ -60,7 +65,7 @@ public final class VerifiedCraftingTableRecipe {
                 toGenericStacks(List.of(assembled));
         List<GenericStack> actualRemaining =
                 toGenericStacks(
-                        pattern.getRemainingItems(craftingInventory));
+                        pattern.getRemainingItems(craftingInput));
         /*
          * Pattern宣言と実assemble結果が一致する場合だけ数量係数を適用する。
          * レシピ条件や返却物が実行時に変わるPatternは通常経路へ戻す。
@@ -98,6 +103,20 @@ public final class VerifiedCraftingTableRecipe {
             }
         }
         return copy;
+    }
+
+    private static CraftingInput toCraftingInput(
+            TransientCraftingContainer craftingInventory) {
+        List<ItemStack> items = new ArrayList<>(
+                craftingInventory.getContainerSize());
+        // CraftingInputは不変Snapshotなので、全slotを複製して実レシピ判定へ渡す。
+        for (int slot = 0; slot < craftingInventory.getContainerSize(); slot++) {
+            items.add(craftingInventory.getItem(slot).copy());
+        }
+        return CraftingInput.of(
+                CRAFTING_GRID_SIZE,
+                CRAFTING_GRID_SIZE,
+                items);
     }
 
     private static List<GenericStack> toGenericStacks(

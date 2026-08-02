@@ -1,6 +1,6 @@
 package com.syaru.advancedassemblycomputing.config;
 
-import net.minecraftforge.common.ForgeConfigSpec;
+import net.neoforged.neoforge.common.ModConfigSpec;
 
 public final class AACConfig {
     /** NeoECO L9の作業台並列数と同じ、ワーカー一台の物理Thread既定値。 */
@@ -13,18 +13,18 @@ public final class AACConfig {
     // 誤設定でdouble電力計算を極端に膨らませない運用上限。
     private static final int MAX_POWER_MULTIPLIER = 1_000_000;
 
-    public static final ForgeConfigSpec SPEC;
+    public static final ModConfigSpec SPEC;
 
-    private static final ForgeConfigSpec.BooleanValue ENABLE_VECTOR_EXECUTION;
-    private static final ForgeConfigSpec.IntValue PHYSICAL_THREADS_PER_WORKER;
-    private static final ForgeConfigSpec.IntValue PROGRESS_PER_TICK;
-    private static final ForgeConfigSpec.IntValue POWER_MULTIPLIER;
-    private static final ForgeConfigSpec.BooleanValue REQUIRE_EXACT_PATTERN_OWNERSHIP;
-    private static final ForgeConfigSpec.BooleanValue ENABLE_NATIVE_CRAFTING_TABLE_BATCH;
-    private static final ForgeConfigSpec.LongValue MAXIMUM_CRAFTING_TABLE_BATCH_EXECUTIONS;
+    private static final ModConfigSpec.BooleanValue ENABLE_VECTOR_EXECUTION;
+    private static final ModConfigSpec.IntValue PHYSICAL_THREADS_PER_WORKER;
+    private static final ModConfigSpec.IntValue PROGRESS_PER_TICK;
+    private static final ModConfigSpec.IntValue POWER_MULTIPLIER;
+    private static final ModConfigSpec.BooleanValue REQUIRE_EXACT_PATTERN_OWNERSHIP;
+    private static final ModConfigSpec.BooleanValue ENABLE_NATIVE_CRAFTING_TABLE_BATCH;
+    private static final ModConfigSpec.LongValue MAXIMUM_CRAFTING_TABLE_BATCH_EXECUTIONS;
 
     static {
-        ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
+        ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
         builder.push("vectorCrafting");
 
         ENABLE_VECTOR_EXECUTION = builder

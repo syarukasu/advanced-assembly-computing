@@ -6,11 +6,10 @@ import java.util.Locale;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
-import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
-import org.jetbrains.annotations.Nullable;
 
 public final class GlintBlockItem extends BlockItem {
     public enum Role {
@@ -34,10 +33,10 @@ public final class GlintBlockItem extends BlockItem {
     @Override
     public void appendHoverText(
             ItemStack stack,
-            @Nullable Level level,
+            Item.TooltipContext context,
             List<Component> tooltip,
             TooltipFlag flag) {
-        super.appendHoverText(stack, level, tooltip, flag);
+        super.appendHoverText(stack, context, tooltip, flag);
 
         // ControllerとWorkerは実際のCommon Config値を表示し、固定値との表示ずれを避ける。
         if (role == Role.CONTROLLER || role == Role.WORKER) {
