@@ -107,6 +107,13 @@ credits the receipt once and then explicitly deletes it. A mismatched payload,
 changed output, duplicate transaction, malformed NBT, or over-limit ledger is
 rejected rather than overwritten.
 
+Receipt entries use a versioned per-entry state and fingerprint. A malformed
+entry is retained as an individual quarantine record when its identity is
+known; entries without a provable Transaction ID put the ledger into a
+new-reservation safety mode. Valid entries remain queryable, and no receipt is
+removed by age or LRU. AAC does not claim an orphan without an authoritative
+ACO ownership proof.
+
 ### Thread sidecar quarantine
 
 An AAC Thread sidecar that fails schema, identifier, mode, AEKey, duplicate-key,

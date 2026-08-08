@@ -5,7 +5,11 @@ import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchReques
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchSnapshot;
 import com.syaru.ae2craftingoptimizer.api.vector.PreparedVectorBatchCodec;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -22,7 +26,8 @@ import net.minecraft.nbt.Tag;
  * ACO親Jobの保存順が前後しても実出力を再照合できる。</p>
  */
 public final class AACCraftingTableTerminalReceiptLedger {
-    private static final int SCHEMA_VERSION = 1;
+    private static final int SCHEMA_VERSION = 2;
+    private static final int LEGACY_SCHEMA_VERSION = 1;
     /** 親Jobが停止したままでも、有限メモリで安全に待てる終端Receipt件数。 */
     private static final int MAXIMUM_RECEIPTS = 16_384;
     /** 一Receiptに保存できる主出力と返却物のAEKey数。 */
@@ -32,7 +37,12 @@ public final class AACCraftingTableTerminalReceiptLedger {
             new LinkedHashMap<>();
     private final Map<UUID, String> reservations =
             new LinkedHashMap<>();
+    private final Map<UUID, CompoundTag> quarantinedEntries =
+            new LinkedHashMap<>();
+    private final List<CompoundTag> unknownQuarantinedEntries =
+            new ArrayList<>();
     private boolean corrupted;
+    private boolean identityUncertain;
     private CompoundTag lockedPayload;
 
     public static int schemaVersion() {
@@ -41,6 +51,24 @@ public final class AACCraftingTableTerminalReceiptLedger {
 
     public synchronized boolean isHealthy() {
         return !corrupted;
+    }
+
+    public synchronized int acknowledgedCount() {
+        return receipts.size();
+    }
+
+    public synchronized int reservedCount() {
+        return reservations.size();
+    }
+
+    public synchronized int quarantinedCount() {
+        return quarantinedEntries.size()
+                + unknownQuarantinedEntries.size()
+                + (corrupted ? 1 : 0);
+    }
+
+    public synchronized boolean hasIdentityUncertainty() {
+        return identityUncertain || corrupted;
     }
 
     public synchronized boolean contains(
@@ -52,6 +80,8 @@ public final class AACCraftingTableTerminalReceiptLedger {
                                 transactionId,
                                 "transactionId"));
         return receipt != null
+                && !quarantinedEntries.containsKey(
+                        transactionId)
                 && receipt.payloadDigest()
                         .equals(
                                 checkedDigest(
@@ -89,6 +119,18 @@ public final class AACCraftingTableTerminalReceiptLedger {
             UUID transactionId,
             String payloadDigest,
             Map<AEKey, BigInteger> exactOutputs) {
+        return record(
+                transactionId,
+                null,
+                payloadDigest,
+                exactOutputs);
+    }
+
+    public synchronized boolean record(
+            UUID transactionId,
+            UUID ownerTransactionId,
+            String payloadDigest,
+            Map<AEKey, BigInteger> exactOutputs) {
         // 破損台帳へ新しい完了証明を混ぜず、Workerを出力待ちのまま保持する。
         if (corrupted) {
             return false;
@@ -96,6 +138,8 @@ public final class AACCraftingTableTerminalReceiptLedger {
         Receipt replacement =
                 new Receipt(
                         transactionId,
+                        ownerTransactionId,
+                        "ACKNOWLEDGED",
                         payloadDigest,
                         exactOutputs);
         Receipt existing =
@@ -109,7 +153,9 @@ public final class AACCraftingTableTerminalReceiptLedger {
         String reservationDigest =
                 reservations.get(
                         replacement.transactionId());
-        if (reservationDigest != null
+        if (quarantinedEntries.containsKey(
+                replacement.transactionId())
+                || reservationDigest != null
                 && !reservationDigest.equals(
                         replacement.payloadDigest())) {
             return false;
@@ -150,6 +196,10 @@ public final class AACCraftingTableTerminalReceiptLedger {
         if (existing != null) {
             return existing.payloadDigest()
                     .equals(checkedDigest);
+        }
+        if (quarantinedEntries.containsKey(checkedId)
+                || identityUncertain) {
+            return false;
         }
         String reserved =
                 reservations.get(checkedId);
@@ -202,6 +252,10 @@ public final class AACCraftingTableTerminalReceiptLedger {
         Receipt existing =
                 receipts.get(
                         checkedId);
+        if (quarantinedEntries.containsKey(checkedId)) {
+            // 隔離entryは管理者の明示操作なしにforgetしない。
+            return false;
+        }
         // 既に削除済みなら、親Jobの再送を冪等な成功として扱う。
         if (existing == null) {
             return releaseReservation(
@@ -223,6 +277,8 @@ public final class AACCraftingTableTerminalReceiptLedger {
     public synchronized boolean isEmpty() {
         return receipts.isEmpty()
                 && reservations.isEmpty()
+                && quarantinedEntries.isEmpty()
+                && unknownQuarantinedEntries.isEmpty()
                 && !corrupted;
     }
 
@@ -247,12 +303,23 @@ public final class AACCraftingTableTerminalReceiptLedger {
                     "transactionId",
                     receipt.transactionId());
             entry.putString(
+                    "state",
+                    receipt.state());
+            if (receipt.ownerTransactionId() != null) {
+                entry.putUUID(
+                        "ownerTransactionId",
+                        receipt.ownerTransactionId());
+            }
+            entry.putString(
                     "payloadDigest",
                     receipt.payloadDigest());
             entry.put(
                     "exactOutputs",
                     encodeCounts(
                             receipt.exactOutputs()));
+            entry.putString(
+                    "entryFingerprint",
+                    fingerprint(entry));
             entries.add(
                     entry);
         }
@@ -277,6 +344,39 @@ public final class AACCraftingTableTerminalReceiptLedger {
         owner.put(
                 "reservations",
                 pendingReservations);
+        ListTag quarantined =
+                new ListTag();
+        for (Map.Entry<UUID, CompoundTag> entry :
+                quarantinedEntries.entrySet()) {
+            CompoundTag record =
+                    new CompoundTag();
+            record.putUUID(
+                    "transactionId",
+                    entry.getKey());
+            record.putString(
+                    "state",
+                    "QUARANTINED");
+            record.put(
+                    "rawEntry",
+                    entry.getValue().copy());
+            quarantined.add(
+                    record);
+        }
+        for (CompoundTag raw : unknownQuarantinedEntries) {
+            CompoundTag record =
+                    new CompoundTag();
+            record.putString(
+                    "state",
+                    "QUARANTINED");
+            record.put(
+                    "rawEntry",
+                    raw.copy());
+            quarantined.add(
+                    record);
+        }
+        owner.put(
+                "quarantinedEntries",
+                quarantined);
         return owner;
     }
 
@@ -284,7 +384,11 @@ public final class AACCraftingTableTerminalReceiptLedger {
             CompoundTag owner) {
         receipts.clear();
         reservations.clear();
+        quarantinedEntries.clear();
+        unknownQuarantinedEntries.clear();
         corrupted =
+                false;
+        identityUncertain =
                 false;
         lockedPayload =
                 null;
@@ -298,10 +402,15 @@ public final class AACCraftingTableTerminalReceiptLedger {
         Tag rawReservations =
                 owner.get(
                         "reservations");
-        // 未知schema、型違い、過大件数は部分復元せず台帳全体をロックする。
-        if (owner.getInt(
-                            "schema")
-                        != SCHEMA_VERSION
+        Tag rawQuarantined =
+                owner.get(
+                        "quarantinedEntries");
+        int schema =
+                owner.getInt(
+                        "schema");
+        // 全体構造が壊れている場合だけ台帳全体をロックする。
+        if ((schema != SCHEMA_VERSION
+                && schema != LEGACY_SCHEMA_VERSION)
                 || !(rawEntries
                         instanceof ListTag entries)
                 || (!entries.isEmpty()
@@ -320,60 +429,75 @@ public final class AACCraftingTableTerminalReceiptLedger {
                         + (rawReservations instanceof ListTag pending
                                 ? pending.size()
                                 : 0)
-                        > MAXIMUM_RECEIPTS) {
+                        + (rawQuarantined instanceof ListTag quarantined
+                                ? quarantined.size()
+                                : 0)
+                        > MAXIMUM_RECEIPTS
+                || (rawQuarantined != null
+                        && (!(rawQuarantined instanceof ListTag quarantined)
+                                || (!quarantined.isEmpty()
+                                        && quarantined.getElementType()
+                                                != Tag.TAG_COMPOUND)
+                                || quarantined.size()
+                                        > MAXIMUM_RECEIPTS))) {
             lock(
                     owner);
             return;
         }
-        // 全件が正しい場合だけ復元を確定し、途中までのReceiptを公開しない。
+        // 壊れたentryだけをraw隔離し、完全なReceiptはそのまま復元する。
         for (int index = 0;
                 index < entries.size();
                 index++) {
+            CompoundTag entry =
+                    entries.getCompound(
+                            index);
             try {
-                CompoundTag entry =
-                        entries.getCompound(
-                                index);
                 // UUID欠落は別仕事との照合ができないため台帳をロックする。
                 if (!entry.hasUUID(
                         "transactionId")) {
-                    throw new IllegalArgumentException(
-                            "terminal receipt has no transaction id");
+                    quarantineEntry(
+                            entry);
+                    continue;
                 }
                 Receipt receipt =
-                        new Receipt(
-                                entry.getUUID(
-                                        "transactionId"),
-                                entry.getString(
-                                        "payloadDigest"),
-                                decodeCounts(
-                                        entry.get(
-                                                "exactOutputs")));
+                        decodeReceipt(
+                                entry,
+                                schema);
+                if (schema == SCHEMA_VERSION
+                        && !entry.getString(
+                                        "entryFingerprint")
+                                .equals(
+                                        fingerprintWithoutFingerprint(
+                                                entry))) {
+                    throw new IllegalArgumentException(
+                            "terminal receipt fingerprint mismatch");
+                }
                 // 同一UUIDの二重Receiptはどちらを正本にするか推測しない。
                 if (receipts.putIfAbsent(
                                 receipt.transactionId(),
                                 receipt)
                         != null) {
-                    throw new IllegalArgumentException(
-                            "duplicate terminal receipt");
+                    quarantineEntry(
+                            entry);
                 }
             } catch (RuntimeException | LinkageError invalid) {
-                lock(
-                        owner);
-                return;
+                quarantineEntry(
+                        entry);
             }
         }
         if (rawReservations instanceof ListTag pending) {
             for (int index = 0;
                     index < pending.size();
                     index++) {
+                CompoundTag entry =
+                        pending.getCompound(
+                                index);
                 try {
-                    CompoundTag entry =
-                            pending.getCompound(
-                                    index);
                     if (!entry.hasUUID(
                             "transactionId")) {
-                        throw new IllegalArgumentException(
-                                "receipt reservation has no transaction id");
+                        quarantineEntry(
+                                entry);
+                        continue;
                     }
                     UUID transactionId =
                             entry.getUUID(
@@ -383,6 +507,8 @@ public final class AACCraftingTableTerminalReceiptLedger {
                                     entry.getString(
                                             "payloadDigest"));
                     if (receipts.containsKey(transactionId)
+                            || quarantinedEntries.containsKey(
+                                    transactionId)
                             || reservations.putIfAbsent(
                                             transactionId,
                                             digest)
@@ -391,18 +517,140 @@ public final class AACCraftingTableTerminalReceiptLedger {
                                 "duplicate receipt reservation");
                     }
                 } catch (RuntimeException | LinkageError invalid) {
-                    lock(
-                            owner);
-                    return;
+                    quarantineEntry(
+                            entry);
                 }
             }
+        }
+        if (rawQuarantined instanceof ListTag quarantined) {
+            for (int index = 0;
+                    index < quarantined.size();
+                    index++) {
+                CompoundTag record =
+                        quarantined.getCompound(
+                                index);
+                Tag raw =
+                        record.get(
+                                "rawEntry");
+                if (!(raw instanceof CompoundTag rawEntry)) {
+                    identityUncertain = true;
+                    unknownQuarantinedEntries.add(
+                            record.copy());
+                    continue;
+                }
+                quarantineEntry(
+                        rawEntry);
+            }
+        }
+    }
+
+    private static Receipt decodeReceipt(
+            CompoundTag entry,
+            int schema) {
+        if (!entry.hasUUID(
+                "transactionId")) {
+            throw new IllegalArgumentException(
+                    "terminal receipt has no transaction id");
+        }
+        String state =
+                entry.getString(
+                        "state");
+        // Schema 1 had no state field and contained only terminal receipts.
+        if (state.isEmpty()
+                && schema == LEGACY_SCHEMA_VERSION) {
+            state = "ACKNOWLEDGED";
+        }
+        if (!"ACKNOWLEDGED".equals(state)) {
+            throw new IllegalArgumentException(
+                    "terminal receipt has an invalid state");
+        }
+        return new Receipt(
+                entry.getUUID(
+                        "transactionId"),
+                entry.hasUUID(
+                        "ownerTransactionId")
+                        ? entry.getUUID(
+                                "ownerTransactionId")
+                        : null,
+                state,
+                entry.getString(
+                        "payloadDigest"),
+                decodeCounts(
+                        entry.get(
+                                "exactOutputs")));
+    }
+
+    private void quarantineEntry(
+            CompoundTag entry) {
+        CompoundTag raw =
+                entry.copy();
+        if (!entry.hasUUID(
+                "transactionId")) {
+            identityUncertain = true;
+            unknownQuarantinedEntries.add(
+                    raw);
+            return;
+        }
+        UUID transactionId =
+                entry.getUUID(
+                        "transactionId");
+        quarantinedEntries.putIfAbsent(
+                transactionId,
+                raw);
+    }
+
+    private static String fingerprint(
+            CompoundTag entry) {
+        return fingerprintWithoutFingerprint(
+                entry);
+    }
+
+    private static String fingerprintWithoutFingerprint(
+            CompoundTag entry) {
+        CompoundTag copy =
+                entry.copy();
+        copy.remove(
+                "entryFingerprint");
+        return fingerprintRaw(
+                copy);
+    }
+
+    private static String fingerprintRaw(
+            CompoundTag entry) {
+        try {
+            byte[] digest =
+                    MessageDigest.getInstance(
+                                    "SHA-256")
+                            .digest(
+                                    entry.toString()
+                                            .getBytes(
+                                                    StandardCharsets.UTF_8));
+            StringBuilder result =
+                    new StringBuilder(
+                            digest.length * 2);
+            for (byte value : digest) {
+                result.append(
+                        String.format(
+                                "%02x",
+                                value));
+            }
+            return result.toString();
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(
+                    "SHA-256 is unavailable",
+                    impossible);
         }
     }
 
     private void lock(
             CompoundTag owner) {
         receipts.clear();
+        reservations.clear();
+        quarantinedEntries.clear();
+        unknownQuarantinedEntries.clear();
         corrupted =
+                true;
+        identityUncertain =
                 true;
         lockedPayload =
                 owner.copy();
@@ -503,12 +751,22 @@ public final class AACCraftingTableTerminalReceiptLedger {
 
     private record Receipt(
             UUID transactionId,
+            UUID ownerTransactionId,
+            String state,
             String payloadDigest,
             Map<AEKey, BigInteger> exactOutputs) {
         private Receipt {
             Objects.requireNonNull(
                     transactionId,
                     "transactionId");
+            state =
+                    Objects.requireNonNull(
+                            state,
+                            "state");
+            if (!"ACKNOWLEDGED".equals(state)) {
+                throw new IllegalArgumentException(
+                        "invalid terminal receipt state");
+            }
             payloadDigest =
                     checkedDigest(
                             payloadDigest);

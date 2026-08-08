@@ -9,6 +9,7 @@
 - One real crafting-table assemble proof
 - Neo ECO physical progress and power
 - Worker live ownership and terminal receipts
+- Receipt reservations, per-entry fingerprints, and raw-entry quarantine
 - Prepare/commit boundary for physical crafting-table work
 - Thread-side NBT sidecars
 - Thread sidecar quarantine, raw-payload retention, and diagnostics

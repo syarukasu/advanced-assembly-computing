@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -177,6 +178,49 @@ final class AACCraftingTableTerminalReceiptLedgerTest {
                         "aco:reserved"));
         assertTrue(
                 ledger.isEmpty());
+    }
+
+    @Test
+    void quarantinesAnUnidentifiableEntryWithoutDroppingTheLedger() {
+        AACCraftingTableTerminalReceiptLedger ledger =
+                new AACCraftingTableTerminalReceiptLedger();
+        CompoundTag owner =
+                new CompoundTag();
+        owner.putInt(
+                "schema",
+                AACCraftingTableTerminalReceiptLedger
+                        .schemaVersion());
+        ListTag entries =
+                new ListTag();
+        CompoundTag malformed =
+                new CompoundTag();
+        malformed.putString(
+                "state",
+                "ACKNOWLEDGED");
+        entries.add(
+                malformed);
+        owner.put(
+                "entries",
+                entries);
+
+        ledger.load(
+                owner);
+
+        assertTrue(
+                ledger.isHealthy());
+        assertEquals(
+                1,
+                ledger.quarantinedCount());
+        assertTrue(
+                ledger.hasIdentityUncertainty());
+        assertFalse(
+                ledger.reserve(
+                        UUID.randomUUID(),
+                        "aco:new"));
+        assertTrue(
+                ledger.save()
+                        .contains(
+                                "quarantinedEntries"));
     }
 
     /** Minecraft Registryを起動せず、終端Receiptの所有権だけを試験する最小AEKey。 */

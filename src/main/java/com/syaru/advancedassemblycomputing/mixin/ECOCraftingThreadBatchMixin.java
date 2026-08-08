@@ -342,6 +342,14 @@ public abstract class ECOCraftingThreadBatchMixin
     }
 
     @Override
+    public Optional<UUID> aac$ownerTransactionId() {
+        return aac$isManagedCraftingTableBatch()
+                ? Optional.ofNullable(
+                        aac$ownerTransactionId)
+                : Optional.empty();
+    }
+
+    @Override
     public Optional<CraftingTableBatchSnapshot>
             aac$quarantinedCraftingTableBatchSnapshot(
                     UUID transactionId) {
