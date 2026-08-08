@@ -2,13 +2,13 @@
 
 ## [Unreleased]
 
-## [1.1.2] - 2026-08-08
+## [1.0.2] - 2026-08-08
 
 ### Changed
 
-- Updated the required ACO integration range to `[1.5.7,1.6.0)` for the
-  NeoForge 1.21.1 ACO build.
-- Kept the Minecraft version (`1.21.1`) separate from the AAC mod version.
+- Published the NeoForge 1.21.1 build with the same AAC mod version `1.0.2`.
+- Kept the Minecraft version (`1.21.1`) separate from the AAC mod version and
+  artifact suffix.
 
 ## [1.1.1] - 2026-08-08
 
