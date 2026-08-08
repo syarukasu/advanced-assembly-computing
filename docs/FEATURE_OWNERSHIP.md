@@ -10,6 +10,7 @@
 - Neo ECO physical progress and power
 - Worker live ownership and terminal receipts
 - Thread-side NBT sidecars
+- Thread sidecar quarantine, raw-payload retention, and diagnostics
 
 ## ACO Owns
 
@@ -21,7 +22,7 @@
 - BigInteger accounting
 - Dependency scheduling
 - Final ME output insertion
-- Cancellation, restart reconciliation, and quarantine
+- Cancellation, restart reconciliation, and parent-job quarantine
 
 AAC never marks an ACO parent complete.
 

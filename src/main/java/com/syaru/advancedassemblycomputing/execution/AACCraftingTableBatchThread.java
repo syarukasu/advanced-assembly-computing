@@ -19,6 +19,16 @@ public interface AACCraftingTableBatchThread {
 
     boolean aac$isManagedCraftingTableBatch();
 
+    /** 隔離中のThreadは空きThreadに見えても新しい仕事を受け付けない。 */
+    boolean aac$isQuarantined();
+
+    /** 既知のTransactionだけを、出力なしのQUARANTINED Snapshotとして公開する。 */
+    Optional<CraftingTableBatchSnapshot>
+            aac$quarantinedCraftingTableBatchSnapshot(UUID transactionId);
+
+    /** Workerの位置・Thread番号と一緒に診断ログへ出す短い隔離情報。 */
+    String aac$quarantineDiagnostic();
+
     CraftingTableBatchMode aac$craftingTableBatchMode();
 
     Optional<CraftingTableBatchSnapshot>

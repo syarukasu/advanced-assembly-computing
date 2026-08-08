@@ -99,6 +99,16 @@ credits the receipt once and then explicitly deletes it. A mismatched payload,
 changed output, duplicate transaction, malformed NBT, or over-limit ledger is
 rejected rather than overwritten.
 
+### Thread sidecar quarantine
+
+An AAC Thread sidecar that fails schema, identifier, mode, AEKey, duplicate-key,
+or count validation is retained as a `QUARANTINED` sidecar. Its original NBT,
+failure category, bounded summary, and any safely readable UUIDs are preserved.
+The Thread is excluded from new work, exact-output snapshots are empty, and
+neither ME recovery nor block-break drops can consume the uncertain stacks.
+Quarantine is persistent and is not cleared by normal `clearWork`; recovery or
+discard must be an explicit administrator action.
+
 Cancellation before output completion releases only the representative Thread.
 ACO owns the real input escrow and decides what must be returned.
 

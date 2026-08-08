@@ -10,6 +10,7 @@ import appeng.me.service.CraftingService;
 import cn.dancingsnow.neoecoae.api.me.ECOCraftingThread;
 import cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingSystemBlockEntity;
 import cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingWorkerBlockEntity;
+import com.syaru.advancedassemblycomputing.AdvancedAssemblyComputing;
 import com.syaru.advancedassemblycomputing.blockentity.VectorCraftingControllerBlockEntity;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableTerminalReceiptLedger;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchThread;
@@ -99,6 +100,10 @@ public abstract class ECOCraftingWorkerBatchMixin
                                 instanceof AACCraftingTableBatchThread batchThread)) {
                     continue;
                 }
+                // 隔離ThreadはNeoECO上でfreeに見えても、管理者確認なしに再利用しない。
+                if (batchThread.aac$isQuarantined()) {
+                    continue;
+                }
                 // 実レシピ検証と冷却材検査を通った最初のThreadだけが所有権を得る。
                 if (batchThread
                         .aac$acceptCraftingTableBatch(
@@ -186,6 +191,16 @@ public abstract class ECOCraftingWorkerBatchMixin
                             payloadDigest);
         }
         // 実Thread解放後は、同じWorker NBTに残した完了Receiptを返す。
+        Optional<CraftingTableBatchSnapshot> quarantined =
+                aac$findQuarantinedThread(
+                        transactionId)
+                        .flatMap(thread ->
+                                thread
+                                        .aac$quarantinedCraftingTableBatchSnapshot(
+                                                transactionId));
+        if (quarantined.isPresent()) {
+            return quarantined;
+        }
         return aac$terminalReceipts.snapshot(
                 transactionId,
                 payloadDigest);
@@ -428,6 +443,21 @@ public abstract class ECOCraftingWorkerBatchMixin
         aac$terminalReceipts.load(
                 data.getCompound(
                         AAC_TERMINAL_RECEIPTS_NBT));
+        for (int index = 0;
+                index < craftingThreads.size();
+                index++) {
+            ECOCraftingThread thread =
+                    craftingThreads.get(index);
+            if (thread instanceof AACCraftingTableBatchThread batchThread
+                    && batchThread.aac$isQuarantined()) {
+                AdvancedAssemblyComputing.LOGGER.warn(
+                        "AAC quarantined NeoECO Thread: workerPos={}, threadIndex={}, {}",
+                        ((ECOCraftingWorkerBlockEntity) (Object) this)
+                                .getBlockPos(),
+                        index,
+                        batchThread.aac$quarantineDiagnostic());
+            }
+        }
     }
 
     @Unique
@@ -468,6 +498,22 @@ public abstract class ECOCraftingWorkerBatchMixin
                         batchThread);
                 return Optional.of(
                         batchThread);
+            }
+        }
+        return Optional.empty();
+    }
+
+    @Unique
+    private Optional<AACCraftingTableBatchThread>
+            aac$findQuarantinedThread(UUID transactionId) {
+        for (ECOCraftingThread thread : craftingThreads) {
+            if (thread instanceof AACCraftingTableBatchThread batchThread
+                    && batchThread.aac$isQuarantined()
+                    && batchThread
+                            .aac$quarantinedCraftingTableBatchSnapshot(
+                                    transactionId)
+                            .isPresent()) {
+                return Optional.of(batchThread);
             }
         }
         return Optional.empty();
