@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-08-08
+
+### Fixed
+
+- Moved the persisted crafting-thread state enum outside the configured Mixin
+  package so ACO recovery can restore existing AAC transactions.
+- Kept the persisted state names and Sidecar format compatible with 1.0.3.
+
 ## [1.0.3] - 2026-08-08
 
 ### Fixed
