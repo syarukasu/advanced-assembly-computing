@@ -77,6 +77,12 @@ public abstract class ECOCraftingWorkerBatchMixin
                 || !vectorController.isFormed()) {
             return false;
         }
+        // 受理前に完了Receipt枠を予約し、後段で容量不足にならないようにする。
+        if (!aac$terminalReceipts.reserve(
+                request.transactionId(),
+                request.payloadDigest())) {
+            return false;
+        }
 
         int threadCount =
                 craftingThreads.size();
@@ -105,19 +111,33 @@ public abstract class ECOCraftingWorkerBatchMixin
                     continue;
                 }
                 // 実レシピ検証と冷却材検査を通った最初のThreadだけが所有権を得る。
-                if (batchThread
-                        .aac$acceptCraftingTableBatch(
-                                request,
-                                controller)) {
-                    aac$threadsByTransaction.put(
+                try {
+                    if (batchThread
+                            .aac$acceptCraftingTableBatch(
+                                    request,
+                                    controller)) {
+                        aac$threadsByTransaction.put(
+                                request.transactionId(),
+                                batchThread);
+                        nextFreeThreadIndex =
+                                (index + 1)
+                                        % Math.max(
+                                                1,
+                                                craftingThreads.size());
+                        return true;
+                    }
+                } catch (RuntimeException | LinkageError failure) {
+                    aac$terminalReceipts.releaseReservation(
                             request.transactionId(),
-                            batchThread);
-                    nextFreeThreadIndex =
-                            (index + 1)
-                                    % Math.max(
-                                            1,
-                                            craftingThreads.size());
-                    return true;
+                            request.payloadDigest());
+                    throw failure;
+                }
+                /*
+                 * 既存Threadで検証に失敗した場合は、次のThreadへ推測で同じ予約を
+                 * 移せる。最終的に受理できなければ下の共通releaseへ進む。
+                 */
+                if (batchThread.aac$isQuarantined()) {
+                    continue;
                 }
             }
         }
@@ -128,6 +148,9 @@ public abstract class ECOCraftingWorkerBatchMixin
          */
         if (craftingThreads.size()
                 >= controller.getThreadCountPerWorker()) {
+            aac$terminalReceipts.releaseReservation(
+                    request.transactionId(),
+                    request.payloadDigest());
             return false;
         }
         ECOCraftingWorkerBlockEntity self =
@@ -138,11 +161,21 @@ public abstract class ECOCraftingWorkerBatchMixin
          * 実レシピ、冷却材、数量式を新Thread自身で先に検証する。
          * 拒否されたThreadを一覧へ追加すると、失敗要求だけで物理Thread上限を埋めてしまう。
          */
-        if (!((AACCraftingTableBatchThread) (Object) thread)
-                .aac$acceptCraftingTableBatch(
-                        request,
-                        controller)) {
-            return false;
+        try {
+            if (!((AACCraftingTableBatchThread) (Object) thread)
+                    .aac$acceptCraftingTableBatch(
+                            request,
+                            controller)) {
+                aac$terminalReceipts.releaseReservation(
+                        request.transactionId(),
+                        request.payloadDigest());
+                return false;
+            }
+        } catch (RuntimeException | LinkageError failure) {
+            aac$terminalReceipts.releaseReservation(
+                    request.transactionId(),
+                    request.payloadDigest());
+            throw failure;
         }
         craftingThreads.add(
                 thread);
@@ -306,6 +339,9 @@ public abstract class ECOCraftingWorkerBatchMixin
                         .aac$cancelCraftingTableBatch(
                                 transactionId,
                                 payloadDigest)) {
+            aac$terminalReceipts.releaseReservation(
+                    transactionId,
+                    payloadDigest);
             aac$threadsByTransaction.remove(
                     transactionId);
             ((ECOCraftingWorkerBlockEntity) (Object) this)

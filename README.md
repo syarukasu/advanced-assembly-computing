@@ -61,6 +61,14 @@ For each accepted crafting-table step:
 AAC fires one crafting event for the one real assemble. It never fires events
 once per logical execution.
 
+Acceptance uses a prepare/commit boundary. Recipe proof, exact conversions,
+representative stacks, and a terminal-receipt reservation complete before any
+coolant or event side effect. Thread start and physical coolant commit happen
+once; a rejected or pre-commit exception rolls the physical Thread back and
+releases the reservation. A post-commit exception is retained as a quarantine
+instead of retrying the request. Crafting-event listener failures are logged
+after the physical commit and cannot revoke ownership or duplicate the work.
+
 ### Multi-Stage Trees
 
 AAC does not collapse an entire tree to its root output. ACO sends individual

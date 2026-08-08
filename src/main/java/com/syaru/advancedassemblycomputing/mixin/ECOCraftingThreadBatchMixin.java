@@ -118,6 +118,7 @@ public abstract class ECOCraftingThreadBatchMixin
             CraftingTableBatchRequest request,
             ECOCraftingSystemBlockEntity controller) {
         if (aac$isQuarantined()
+                || aac$state != AacThreadState.NONE
                 || isBusy
                 || !(request.pattern()
                         instanceof IMolecularAssemblerSupportedPattern pattern)
@@ -163,26 +164,7 @@ public abstract class ECOCraftingThreadBatchMixin
                 prepareVerifiedWork(
                         request,
                         proof);
-        /*
-         * N回分の冷却材を消費すると注文量依存コストへ戻る。
-         * 物理Thread一仕事としてNeoECO本来の一回分だけを検査・消費する。
-         */
-        if (!((ECOCraftingThreadBatchAccessor) (Object) this)
-                .aac$invokeConsumeCraftingCoolant(
-                        controller,
-                        1)) {
-            craftingInv.clearContent();
-            return false;
-        }
-        /*
-         * InsaneAEと同じく、注文数量ではなく実際に行った一回のassembleだけを通知する。
-         * 係数展開した回数ぶんイベントを発火すると、TPS負荷と副作用が数量依存へ戻る。
-         */
-        proof.fireCraftingEvent(
-                worker.getLevel(),
-                pattern,
-                craftingInv);
-
+        // ここまでが副作用のないPrepare段階。以降は一度だけ狭くcommitする。
         aac$batchTransactionId =
                 request.transactionId();
         aac$ownerTransactionId =
@@ -193,16 +175,85 @@ public abstract class ECOCraftingThreadBatchMixin
                 request.mode();
         aac$exactOutputs =
                 actualOutputs;
+        aac$state = AacThreadState.RUNNING;
+        boolean workStarted = false;
+        boolean coolantCommitted = false;
         try {
+            // Sidecarを先に用意し、NeoECO Threadと同じ保存単位で復元できるようにする。
             startVerifiedWork(
                     preparedWork,
                     request.craftingJobId());
+            workStarted = true;
+            /*
+             * N回分ではなく、一つの物理Thread分だけ冷却材をcommitする。
+             * falseは消費されていない拒否、例外は消費状態不明として隔離する。
+             */
+            try {
+                if (!((ECOCraftingThreadBatchAccessor) (Object) this)
+                        .aac$invokeConsumeCraftingCoolant(
+                                controller,
+                                1)) {
+                    aac$rollbackPhysicalWork();
+                    craftingInv.clearContent();
+                    aac$clearSidecar();
+                    return false;
+                }
+                coolantCommitted = true;
+            } catch (RuntimeException | LinkageError coolantFailure) {
+                aac$quarantineAfterCommit(
+                        coolantFailure);
+                craftingInv.clearContent();
+                return true;
+            }
+            /*
+             * Eventは永続会計ではない。listenerの例外で完成済みThreadを巻き戻さず、
+             * 物理仕事を正本として記録だけ残す。
+             */
+            try {
+                proof.fireCraftingEvent(
+                        worker.getLevel(),
+                        pattern,
+                        craftingInv);
+            } catch (RuntimeException | LinkageError eventFailure) {
+                com.syaru.advancedassemblycomputing.AdvancedAssemblyComputing.LOGGER
+                        .warn(
+                                "AAC crafting event listener failed after physical commit; preserving Thread ownership",
+                                eventFailure);
+            }
             return true;
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | LinkageError failure) {
+            if (workStarted && !coolantCommitted) {
+                aac$rollbackPhysicalWork();
+                craftingInv.clearContent();
+                aac$clearSidecar();
+                return false;
+            }
+            if (coolantCommitted) {
+                // 冷却材とThreadのどちらかが確定した後の不確定例外は再実行禁止。
+                aac$quarantineAfterCommit(
+                        failure);
+                craftingInv.clearContent();
+                return true;
+            }
             aac$clearSidecar();
             craftingInv.clearContent();
-            throw failure;
+            return false;
         }
+    }
+
+    @Unique
+    private void aac$rollbackPhysicalWork() {
+        ECOCraftingThread self =
+                (ECOCraftingThread) (Object) this;
+        int occupiedSlots =
+                Math.max(
+                        1,
+                        self.getOccupiedThreadSlots());
+        ((ECOCraftingThreadBatchAccessor) (Object) this)
+                .aac$invokeClearWork();
+        worker.onThreadStop(
+                occupiedSlots);
+        worker.setChanged();
     }
 
     @Unique
@@ -882,6 +933,50 @@ public abstract class ECOCraftingThreadBatchMixin
         aac$batchMode = null;
         aac$exactOutputs = Map.of();
         aac$state = AacThreadState.QUARANTINED;
+    }
+
+    @Unique
+    private void aac$quarantineAfterCommit(
+            Throwable failure) {
+        // 既に識別・出力が検証済みでも、commit後の不確定例外は再実行させない。
+        aac$quarantine(
+                aac$writeManagedSidecar(),
+                failure);
+    }
+
+    @Unique
+    private CompoundTag aac$writeManagedSidecar() {
+        CompoundTag sidecar =
+                new CompoundTag();
+        sidecar.putInt(
+                "schema",
+                SIDECAR_SCHEMA);
+        sidecar.putString(
+                NBT_STATE,
+                AacThreadState.RUNNING.name());
+        if (aac$batchTransactionId != null) {
+            sidecar.putUUID(
+                    "transactionId",
+                    aac$batchTransactionId);
+        }
+        if (aac$ownerTransactionId != null) {
+            sidecar.putUUID(
+                    "ownerTransactionId",
+                    aac$ownerTransactionId);
+        }
+        sidecar.putString(
+                "payloadDigest",
+                aac$payloadDigest);
+        if (aac$batchMode != null) {
+            sidecar.putString(
+                    "mode",
+                    aac$batchMode.name());
+        }
+        sidecar.put(
+                "exactOutputs",
+                writeExactOutputs(
+                        aac$exactOutputs));
+        return sidecar;
     }
 
     @Unique
