@@ -24,6 +24,8 @@ public interface AACCraftingTableBatchThread {
 
     Optional<UUID> aac$ownerTransactionId();
 
+    Optional<UUID> aac$quarantineTransactionId();
+
     /** 既知のTransactionだけを、出力なしのQUARANTINED Snapshotとして公開する。 */
     Optional<CraftingTableBatchSnapshot>
             aac$quarantinedCraftingTableBatchSnapshot(UUID transactionId);
@@ -48,4 +50,10 @@ public interface AACCraftingTableBatchThread {
     boolean aac$cancelCraftingTableBatch(
             UUID transactionId,
             String payloadDigest);
+
+    long aac$ownershipRevision();
+
+    long aac$progressRevision();
+
+    long aac$receiptRevision();
 }

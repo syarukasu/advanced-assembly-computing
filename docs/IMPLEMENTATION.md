@@ -105,7 +105,31 @@ bounded scan. Every cached Worker is also checked against the current Block
 Entity at its saved position before use.
 
 Normal snapshot, acknowledge, forget, and cancel polling therefore use direct
-lookup instead of repeatedly scanning every Worker and Thread.
+lookup instead of repeatedly scanning every Worker and Thread. A missing lookup
+is remembered until a new acceptance or reload invalidates that negative entry.
+
+## Revision and Wakeup Path
+
+AAC keeps separate monotonic ownership, progress, receipt, and capacity
+revisions. A Thread snapshot is reused while its progress and output-ready
+state are unchanged; unchanged polling therefore does not allocate a new
+`CraftingTableBatchSnapshot` or output map.
+
+The Neo ECO `wakeTickingDevice` lifecycle hook is invoked only after an AAC
+ownership, receipt, acknowledge, or cancellation transition. An accounting-only
+BigInteger Thread that is already `OUTPUT_READY` returns `SLEEP` instead of
+forcing Neo ECO's `URGENT` path every tick. The wakeup restores the normal
+worker schedule before the target is acknowledged or cancelled.
+
+Ready Threads are kept in an identity set, so AAC's custom output flush does
+not scan every Thread merely to discover that no output is ready. The set is
+rebuilt once from persisted Neo ECO state after load, and stale entries are
+removed when a Thread is cleared.
+
+`AACPerformanceMetrics` exposes counters for avoided polls, wakeups, one-time
+index rebuilds, Thread scans, snapshot allocations, output-ready sleep ticks,
+and avoided accounting-only urgent ticks. These counters are diagnostics only;
+they do not decide ownership or invent a result when a notification is absent.
 
 ## Physical Progress and Power
 

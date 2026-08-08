@@ -14,15 +14,21 @@ import com.syaru.advancedassemblycomputing.AdvancedAssemblyComputing;
 import com.syaru.advancedassemblycomputing.blockentity.VectorCraftingControllerBlockEntity;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableTerminalReceiptLedger;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchThread;
+import com.syaru.advancedassemblycomputing.execution.AACPerformanceMetrics;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchWorker;
+import com.syaru.advancedassemblycomputing.execution.AACRevisionTracker;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchMode;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchRequest;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchSnapshot;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import java.util.HashMap;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
 import org.spongepowered.asm.mixin.Final;
@@ -67,6 +73,27 @@ public abstract class ECOCraftingWorkerBatchMixin
     private final Map<UUID, AACCraftingTableBatchThread>
             aac$threadsByTransaction =
                     new HashMap<>();
+
+    @Unique
+    private final Map<UUID, AACCraftingTableBatchThread>
+            aac$quarantinedByTransaction =
+                    new HashMap<>();
+
+    @Unique
+    private final Set<UUID> aac$knownMissingTransactions =
+            new HashSet<>();
+
+    @Unique
+    private final Set<UUID> aac$knownMissingQuarantines =
+            new HashSet<>();
+
+    @Unique
+    private final Set<ECOCraftingThread> aac$readyThreads =
+            Collections.newSetFromMap(new IdentityHashMap<>());
+
+    @Unique
+    private final AACRevisionTracker aac$revisions =
+            new AACRevisionTracker();
 
     @Override
     public boolean aac$acceptCraftingTableBatch(
@@ -119,6 +146,10 @@ public abstract class ECOCraftingWorkerBatchMixin
                         aac$threadsByTransaction.put(
                                 request.transactionId(),
                                 batchThread);
+                        aac$knownMissingTransactions.remove(
+                                request.transactionId());
+                        aac$revisions.ownershipChanged();
+                        aac$wakeForBatchChange();
                         nextFreeThreadIndex =
                                 (index + 1)
                                         % Math.max(
@@ -182,6 +213,10 @@ public abstract class ECOCraftingWorkerBatchMixin
         aac$threadsByTransaction.put(
                 request.transactionId(),
                 (AACCraftingTableBatchThread) (Object) thread);
+        aac$knownMissingTransactions.remove(
+                request.transactionId());
+        aac$revisions.ownershipChanged();
+        aac$wakeForBatchChange();
         nextFreeThreadIndex =
                 craftingThreads.size()
                         % Math.max(
@@ -205,6 +240,31 @@ public abstract class ECOCraftingWorkerBatchMixin
                         transactionId,
                         payloadDigest)
                 .isPresent();
+    }
+
+    @Override
+    public void aac$wakeForBatchChange() {
+        ((ECOCraftingWorkerBatchAccessor) (Object) this)
+                .aac$invokeWakeTickingDevice();
+        AACPerformanceMetrics.wakeup();
+    }
+
+    @Override
+    public void aac$markOutputReady(ECOCraftingThread thread) {
+        aac$readyThreads.add(thread);
+    }
+
+    @Override
+    public void aac$unmarkOutputReady(ECOCraftingThread thread) {
+        aac$readyThreads.remove(thread);
+    }
+
+    @Override
+    public Set<UUID> aac$knownTransactionIds() {
+        Set<UUID> result = new HashSet<>(
+                aac$threadsByTransaction.keySet());
+        result.addAll(aac$terminalReceipts.transactionIds());
+        return Set.copyOf(result);
     }
 
     @Override
@@ -286,6 +346,10 @@ public abstract class ECOCraftingWorkerBatchMixin
                             payloadDigest)) {
                 aac$threadsByTransaction.remove(
                         transactionId);
+                aac$knownMissingTransactions.remove(transactionId);
+                aac$revisions.receiptChanged();
+                aac$revisions.ownershipChanged();
+                aac$wakeForBatchChange();
                 ((ECOCraftingWorkerBlockEntity) (Object) this)
                         .setChanged();
                 return true;
@@ -315,6 +379,9 @@ public abstract class ECOCraftingWorkerBatchMixin
                         payloadDigest);
         // 削除または既削除を保存し、親Jobの再送を冪等に終える。
         if (forgotten) {
+            aac$knownMissingTransactions.remove(transactionId);
+            aac$revisions.receiptChanged();
+            aac$wakeForBatchChange();
             ((ECOCraftingWorkerBlockEntity) (Object) this)
                     .setChanged();
         }
@@ -346,6 +413,10 @@ public abstract class ECOCraftingWorkerBatchMixin
                     payloadDigest);
             aac$threadsByTransaction.remove(
                     transactionId);
+            aac$knownMissingTransactions.remove(transactionId);
+            aac$revisions.receiptChanged();
+            aac$revisions.ownershipChanged();
+            aac$wakeForBatchChange();
             ((ECOCraftingWorkerBlockEntity) (Object) this)
                     .setChanged();
             return true;
@@ -359,14 +430,13 @@ public abstract class ECOCraftingWorkerBatchMixin
             cancellable = true)
     private void aac$flushManagedOutputsPerThread(
             CallbackInfo callbackInfo) {
-        boolean containsReadyManagedBatch =
-                false;
+        boolean containsReadyManagedBatch = false;
         /*
          * AAC仕事が完了したtickだけNeoECOの全Thread合算を置き換える。
          * 通常Threadだけのtickは親MODの高速経路をそのまま使う。
          */
         for (ECOCraftingThread thread :
-                craftingThreads) {
+                aac$readyThreads) {
             if (thread.isOutputReady()
                     && thread
                             instanceof AACCraftingTableBatchThread batchThread
@@ -403,8 +473,9 @@ public abstract class ECOCraftingWorkerBatchMixin
          * 加算overflowさせない。
          */
         for (ECOCraftingThread thread :
-                craftingThreads) {
+                aac$readyThreads.toArray(ECOCraftingThread[]::new)) {
             if (!thread.isOutputReady()) {
+                aac$readyThreads.remove(thread);
                 continue;
             }
             /*
@@ -476,8 +547,12 @@ public abstract class ECOCraftingWorkerBatchMixin
     private void aac$loadTerminalReceipts(
             CompoundTag data,
             CallbackInfo callbackInfo) {
-        // Thread一覧は親MODが復元するため、実行時索引だけを空にして遅延再構築する。
+        // Thread一覧は親MODが復元するため、ここで一度だけ実行時索引を再構築する。
         aac$threadsByTransaction.clear();
+        aac$quarantinedByTransaction.clear();
+        aac$knownMissingTransactions.clear();
+        aac$knownMissingQuarantines.clear();
+        aac$readyThreads.clear();
         aac$terminalReceipts.load(
                 data.getCompound(
                         AAC_TERMINAL_RECEIPTS_NBT));
@@ -486,6 +561,15 @@ public abstract class ECOCraftingWorkerBatchMixin
                 index++) {
             ECOCraftingThread thread =
                     craftingThreads.get(index);
+            if (thread.isOutputReady()) {
+                aac$readyThreads.add(thread);
+            }
+            if (thread instanceof AACCraftingTableBatchThread batchThread) {
+                batchThread.aac$ownerTransactionId()
+                        .ifPresent(id -> aac$threadsByTransaction.put(id, batchThread));
+                batchThread.aac$quarantineTransactionId()
+                        .ifPresent(id -> aac$quarantinedByTransaction.put(id, batchThread));
+            }
             if (thread instanceof AACCraftingTableBatchThread batchThread
                     && batchThread.aac$isQuarantined()) {
                 AdvancedAssemblyComputing.LOGGER.warn(
@@ -496,6 +580,7 @@ public abstract class ECOCraftingWorkerBatchMixin
                         batchThread.aac$quarantineDiagnostic());
             }
         }
+        AACPerformanceMetrics.fullIndexRebuild();
     }
 
     @Unique
@@ -518,10 +603,15 @@ public abstract class ECOCraftingWorkerBatchMixin
             aac$threadsByTransaction.remove(
                     transactionId);
         }
+        if (aac$knownMissingTransactions.contains(transactionId)) {
+            AACPerformanceMetrics.pollAvoided();
+            return Optional.empty();
+        }
         /*
          * 再起動直後または親MODがThread一覧を再構築した直後だけ一巡する。
          * 見つけたThreadは以後Transaction IDから定数時間で取得する。
          */
+        AACPerformanceMetrics.threadScan();
         for (ECOCraftingThread thread :
                 craftingThreads) {
             // AAC管理Threadかつ同一Payloadを所有する一件だけを索引へ登録する。
@@ -538,12 +628,22 @@ public abstract class ECOCraftingWorkerBatchMixin
                         batchThread);
             }
         }
+        aac$knownMissingTransactions.add(transactionId);
         return Optional.empty();
     }
 
     @Unique
     private Optional<AACCraftingTableBatchThread>
             aac$findQuarantinedThread(UUID transactionId) {
+        AACCraftingTableBatchThread cached =
+                aac$quarantinedByTransaction.get(transactionId);
+        if (cached != null) {
+            return Optional.of(cached);
+        }
+        if (aac$knownMissingQuarantines.contains(transactionId)) {
+            return Optional.empty();
+        }
+        AACPerformanceMetrics.threadScan();
         for (ECOCraftingThread thread : craftingThreads) {
             if (thread instanceof AACCraftingTableBatchThread batchThread
                     && batchThread.aac$isQuarantined()
@@ -551,9 +651,11 @@ public abstract class ECOCraftingWorkerBatchMixin
                             .aac$quarantinedCraftingTableBatchSnapshot(
                                     transactionId)
                             .isPresent()) {
+                aac$quarantinedByTransaction.put(transactionId, batchThread);
                 return Optional.of(batchThread);
             }
         }
+        aac$knownMissingQuarantines.add(transactionId);
         return Optional.empty();
     }
 }
