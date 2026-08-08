@@ -6,7 +6,11 @@ group = mod_group
 version = mod_version
 
 base {
-    archivesName = 'advanced-assembly-computing'
+    archivesName = "aac${mod_version}_${minecraft_version}"
+}
+
+tasks.named('jar') {
+    archiveFileName = "aac${mod_version}_${minecraft_version}.jar"
 }
 
 java {
@@ -45,7 +49,8 @@ repositories {
     mavenCentral()
     flatDir {
         // 再難読化済みACO配布JARをForgeGradleのdeobf対象として解決する。
-        dirs '../ae2-crafting-optimizer/build/libs'
+        def acoJarProperty = findProperty('acoJar')
+        dirs(acoJarProperty == null ? file("${buildDir}/aco-contract") : file(acoJarProperty).parentFile)
     }
     maven {
         name = 'ModMaven'
@@ -81,16 +86,41 @@ dependencies {
         new File(localModsDir, 'neoecoae-20.3.0.jar.disabled')
     ].find { it.isFile() }
     def localLdlib = new File(localModsDir, 'ldlib-forge-1.20.1-1.0.50.jar')
-    def localAco = file('../ae2-crafting-optimizer/build/libs/ae2-crafting-optimizer-1.5.5.jar')
+    def acoJarProperty = findProperty('acoJar')
+    if (acoJarProperty == null) {
+        throw new GradleException('AAC 1.20.1 requires -PacoJar=/absolute/path/to/aco<version>_1.20.1.jar')
+    }
+    def localAco = file(acoJarProperty)
+    def acoStem = localAco.name.endsWith('.jar') ? localAco.name[0..-5] : localAco.name
+    def acoVersionSeparator = acoStem.lastIndexOf('-')
+    if (acoVersionSeparator <= 0 || acoVersionSeparator == acoStem.length() - 1) {
+        throw new GradleException("ACO contract JAR must use a versioned filename: ${localAco}")
+    }
+    def acoModuleName = acoStem.substring(0, acoVersionSeparator)
+    def acoVersion = acoStem.substring(acoVersionSeparator + 1)
     def localAcoDependency = project.dependencies.create(
             group: 'local.aco',
-            name: 'ae2-crafting-optimizer',
-            version: '1.5.5')
+            name: acoModuleName,
+            version: acoVersion)
 
     // 必須の検証済みArtifactが一つでも欠ける場合は、推測したAPIでビルドを続行しない。
     if (!localAe2.isFile() || localNeoEco == null || !localLdlib.isFile() || !localAco.isFile()) {
         throw new GradleException(
-                'AAC requires the exact local AE2, Neo ECO, LDLib, and ACO 1.5.5 artifacts documented by this project.')
+                'AAC requires the exact local AE2, Neo ECO, LDLib, and explicit ACO contract artifacts documented by this project.')
+    }
+
+    def acoArchive = new java.util.jar.JarFile(localAco)
+    try {
+        def metadataEntry = acoArchive.getJarEntry('META-INF/mods.toml')
+        if (metadataEntry == null) {
+            throw new GradleException("ACO contract JAR is not a Forge 1.20.1 artifact: ${localAco}")
+        }
+        def metadata = acoArchive.getInputStream(metadataEntry).getText('UTF-8')
+        if (!metadata.contains('modId = "ae2_crafting_optimizer"') || !metadata.contains('1.20.1')) {
+            throw new GradleException("ACO contract JAR has unexpected 1.20.1 metadata: ${localAco}")
+        }
+    } finally {
+        acoArchive.close()
     }
 
     implementation files(localAe2)

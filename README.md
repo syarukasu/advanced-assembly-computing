@@ -11,7 +11,9 @@ AAC is not a second crafting planner. It is the physical executor:
 - Neo ECO owns real Thread progress, power, and persistence.
 
 Requested quantity is an exact multiplication coefficient. It does not create
-one Worker, Thread, Pattern push, or Java loop per craft.
+one Worker, Thread, Pattern push, or Java loop per craft. The persistent branch
+is `mc/1.20.1`, and its artifact is named `aac<version>_1.20.1.jar`. The
+NeoForge line is maintained independently on `mc/1.21.1`.
 
 ## Target Environment
 
@@ -180,10 +182,11 @@ copy Neo ECO textures. AAC BlockItems add the normal enchantment glint.
 
 ## Build
 
-Build ACO `1.5.4` first, then:
+Pass the Forge 1.20.1 ACO contract explicitly, then:
 
 ```powershell
 .\gradlew.bat clean build --no-daemon
+# -PacoJar=C:/path/to/ae2-crafting-optimizer-<version>.jar
 ```
 
 The output JAR is written to `build/libs`.
