@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-08-08
+
+### Fixed
+
+- Moved the crafting-thread sidecar validation exception outside the configured
+  Mixin package so existing Vector Crafting Workers can load without an
+  `IllegalClassLoadError`.
+- Preserved malformed-sidecar quarantine and failure-category reporting.
+
 ## [1.0.2] - 2026-08-08
 
 ### Changed
