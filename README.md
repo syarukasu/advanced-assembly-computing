@@ -22,7 +22,7 @@ NeoForge line is maintained independently on `mc/1.21.1`.
 - Java `17`
 - Applied Energistics 2 `15.4.10`
 - Neo ECO AE Extension `20.3.0`
-- AE2 Crafting Optimizer `1.5.6` in the Forge `1.20.1` line
+- AE2 Crafting Optimizer `1.5.7` in the Forge `1.20.1` line
 - Advanced Quantum Engineering `2.1.2` through `2.2.x` is optional
 - Dedicated server, singleplayer, and Arclight as a normal Forge mod
 
