@@ -46,7 +46,7 @@ side = "BOTH"
 [[dependencies.advanced_assembly_computing]]
 modId = "ae2_crafting_optimizer"
 mandatory = true
-versionRange = "[1.5.6,1.6.0)"
+versionRange = "[1.5.7,1.6.0)"
 ordering = "AFTER"
 side = "BOTH"
 

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-08-08
+
+### Changed
+
+- Added revision-driven worker wakeups and cached batch snapshots.
+- Removed repeated full-thread searches from the normal output-ready path.
+- Synchronized the required ACO contract with ACO 1.5.7.
+
 ## [1.0.1] - 2026-07-29
 
 ### Fixed
