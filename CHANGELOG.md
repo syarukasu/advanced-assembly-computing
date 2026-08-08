@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-08-08
+
+### Changed
+
+- Updated the required ACO integration range to `[1.5.7,1.6.0)` for the
+  NeoForge 1.21.1 ACO build.
+- Kept the Minecraft version (`1.21.1`) separate from the AAC mod version.
+
 ## [1.1.1] - 2026-08-08
 
 ### Changed
@@ -16,7 +24,7 @@
 - Reused immutable live and terminal-receipt snapshots while their revision is
   unchanged, and added counters for avoided polls, wakeups, index rebuilds,
   thread scans, snapshot allocations, and output-ready sleep ticks.
-- Updated and verified the AAC build contract against the ACO 1.6.x public
+- Updated and verified the AAC build contract against the ACO 1.5.7 public
   contract.
 
 ## [1.1.0] - 2026-08-02
