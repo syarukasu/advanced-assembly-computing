@@ -23,8 +23,8 @@ import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchMode;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchRequest;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchTarget;
 import com.syaru.ae2craftingoptimizer.api.vector.ExactStack;
-import com.syaru.ae2craftingoptimizer.batch.NativePatternBatchSupport;
-import com.syaru.ae2craftingoptimizer.transaction.BatchTransactionRecord;
+import com.syaru.advancedassemblycomputing.execution.AACNativePatternBatchSupport;
+import com.syaru.ae2craftingoptimizer.api.batch.v2.BatchTransactionRecord;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -136,13 +136,13 @@ public final class AACCraftingTableBatchAdapter
                     "AAC crafting-table batch has no safe execution capacity");
         }
 
-        var scaledInputs = NativePatternBatchSupport.scaleInputs(
+        var scaledInputs = AACNativePatternBatchSupport.scaleInputs(
                 context,
                 executions);
         List<GenericStack> aggregateInputs =
-                NativePatternBatchSupport.flatten(scaledInputs);
+                AACNativePatternBatchSupport.flatten(scaledInputs);
         List<GenericStack> expectedOutputs =
-                NativePatternBatchSupport.scaleAllExpectedOutputs(
+                AACNativePatternBatchSupport.scaleAllExpectedOutputs(
                         context,
                         executions);
         if (!LongBatchStackMath.totalsFitLong(expectedOutputs)) {
@@ -172,7 +172,7 @@ public final class AACCraftingTableBatchAdapter
             PreparedPatternBatch prepared) {
         Target target = requireTarget(context);
         String patternFingerprint =
-                NativePatternBatchSupport.fingerprint(context);
+                AACNativePatternBatchSupport.fingerprint(context);
         String payloadDigest =
                 BatchPayloadFingerprint.of(prepared);
         NativeBatchReceipt existing =
@@ -290,7 +290,10 @@ public final class AACCraftingTableBatchAdapter
                     "AAC Pattern Bus has no matching receipt");
         }
         String payloadDigest =
-                BatchPayloadFingerprint.of(record);
+                AACNativePatternBatchSupport.payloadDigest(
+                        record.offeredExecutions(),
+                        record.extractedInputs(),
+                        record.expectedOutputs());
         if (receipt.executions()
                         != record.offeredExecutions()
                 || !receipt.patternFingerprint()

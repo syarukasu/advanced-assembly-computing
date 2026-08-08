@@ -92,12 +92,17 @@ dependencies {
     }
     def localAco = file(acoJarProperty)
     def acoStem = localAco.name.endsWith('.jar') ? localAco.name[0..-5] : localAco.name
-    def acoVersionSeparator = acoStem.lastIndexOf('-')
-    if (acoVersionSeparator <= 0 || acoVersionSeparator == acoStem.length() - 1) {
+    def acoVersionMatcher = (acoStem =~ /(?:-|^aco)(\d+\.\d+\.\d+)(?:_|$)/)
+    if (!acoVersionMatcher.find()) {
         throw new GradleException("ACO contract JAR must use a versioned filename: ${localAco}")
     }
-    def acoModuleName = acoStem.substring(0, acoVersionSeparator)
-    def acoVersion = acoStem.substring(acoVersionSeparator + 1)
+    def acoVersion = acoVersionMatcher.group(1)
+    // FlatDir derives the module name from the part before the final version
+    // separator. Keep this aligned with both legacy and versioned ACO names.
+    def acoVersionSeparator = acoStem.lastIndexOf('-')
+    def acoModuleName = acoVersionSeparator > 0
+            ? acoStem.substring(0, acoVersionSeparator)
+            : acoStem
     def localAcoDependency = project.dependencies.create(
             group: 'local.aco',
             name: acoModuleName,
@@ -141,12 +146,31 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }
 
+tasks.register('verifyAcoPublicApiBoundary') {
+    description = 'Reject direct AAC imports from ACO implementation packages.'
+    group = 'verification'
+    doLast {
+        def forbidden = ~/import\s+com\.syaru\.ae2craftingoptimizer\.(?!api\.)/
+        fileTree('src/main/java').matching { include '**/*.java' }.files.each { source ->
+            def text = source.getText('UTF-8')
+            if (text =~ forbidden) {
+                throw new GradleException("AAC source imports a non-public ACO package: ${source}")
+            }
+        }
+    }
+}
+
+tasks.named('compileJava').configure {
+    dependsOn tasks.named('verifyAcoPublicApiBoundary')
+}
+
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 
 test {
     useJUnitPlatform()
+    systemProperty 'aacLocalModsDir', findProperty('aacLocalModsDir') ?: ''
 }
 
 processResources {

@@ -17,6 +17,15 @@ Normal Neo ECO structures retain their original predicates.
 
 AAC requires ACO Pattern Batch API version `4`.
 
+AAC uses only ACO's public packages. Recovery receives the public read-only
+`api.batch.v2.BatchTransactionRecord` view; it does not import ACO's internal
+transaction, config, batch, engine, lifecycle, or mixin packages. The build
+has a dedicated forbidden-import task for this boundary. The public target,
+receipt, exact-count, and provider-ownership interfaces are checked before
+the AAC adapter is registered. Revision/wakeup support is optional on the
+Forge 1.20.1 contract and is reported as such; it is not silently treated as
+available.
+
 `ECOCraftingPatternBusBatchMixin` implements:
 
 - `ProviderOwnedPatternBatchTarget`;
@@ -77,8 +86,9 @@ Before a completed BigInteger Thread is released:
 The terminal ledger is bounded to `16,384` receipts and `65,536` output keys per
 receipt. These are corruption and memory limits, not requested-quantity limits.
 
-Malformed ledger NBT is locked as a whole. It is not partially restored or
-silently discarded.
+Malformed terminal-ledger entries are quarantined individually when their
+identity is still provable. Structurally malformed ledgers remain locked as a
+whole and are never silently discarded.
 
 ## Runtime Ownership Index
 
@@ -173,5 +183,6 @@ The three AQE progression recipes use `forge:conditional` with
 Common code references no client-only Minecraft class. AAC uses no Bukkit,
 Paper, Spigot, or Arclight API.
 
-Mixins are required and pinned to Neo ECO `20.3.x`. A missing target must fail
-startup rather than leave decorative hardware with incorrect accounting.
+Mixins are required and pinned to the exact Neo ECO `20.3.0` manifest in
+`docs/contracts/1.20.1.json`. A missing target must fail before a job is
+accepted rather than leave decorative hardware with incorrect accounting.

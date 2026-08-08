@@ -21,6 +21,14 @@ Automated tests cover:
 - nine identical input slots at `Long.MAX_VALUE` each without merged-input
   overflow rejection;
 - a coefficient-nine input slot being limited to `Long.MAX_VALUE / 9`.
+- the exact Neo ECO `20.3.0` JAR's thread, worker, Pattern Bus, and cluster
+  method/field descriptors;
+- the public ACO API boundary, including the public transaction view and
+  receipt/target interfaces.
+
+The bytecode test reads `neoecoae-20.3.0.jar` from the `aacLocalModsDir`
+passed to Gradle. `verifyAcoPublicApiBoundary` fails if AAC imports an ACO
+implementation package. These checks do not start Minecraft.
 
 ## Live Registration
 

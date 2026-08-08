@@ -22,7 +22,7 @@ NeoForge line is maintained independently on `mc/1.21.1`.
 - Java `17`
 - Applied Energistics 2 `15.4.10`
 - Neo ECO AE Extension `20.3.0`
-- AE2 Crafting Optimizer `1.5.4+` in the `1.5.x` series
+- AE2 Crafting Optimizer `1.5.6` in the Forge `1.20.1` line
 - Advanced Quantum Engineering `2.1.2` through `2.2.x` is optional
 - Dedicated server, singleplayer, and Arclight as a normal Forge mod
 
@@ -39,6 +39,15 @@ The structure keeps Neo ECO's original casing, interface, Pattern Bus, vent,
 hatches, orientation, mirroring, and size rules. An AAC controller requires AAC
 workers and AAC parallel cores in the corresponding rows; mixing L9 performance
 parts does not form the upper structure.
+
+## Versioned Contracts
+
+The exact dependency and bytecode contract is recorded in
+`docs/contracts/1.20.1.json`. The `1.21.1` manifest is separate and is not
+used by the Forge artifact. AAC imports only `com.syaru.ae2craftingoptimizer.api.*`;
+the build rejects ACO implementation-package imports. Startup fails before a
+job can be accepted if the public receipt/target contract or required AAC
+Mixin interfaces are missing.
 
 ## Execution Model
 
@@ -110,9 +119,8 @@ rejected rather than overwritten.
 Receipt entries use a versioned per-entry state and fingerprint. A malformed
 entry is retained as an individual quarantine record when its identity is
 known; entries without a provable Transaction ID put the ledger into a
-new-reservation safety mode. Valid entries remain queryable, and no receipt is
-removed by age or LRU. AAC does not claim an orphan without an authoritative
-ACO ownership proof.
+new-reservation safety mode. Valid entries remain queryable. AAC does not
+claim an orphan without an authoritative ACO ownership proof.
 
 ### Thread sidecar quarantine
 
@@ -181,7 +189,8 @@ maximumExecutionsPerWave = 9223372036854775807
 Per-stack signed-long safety may reduce the normal AE2 batch. ACO's exact
 BigInteger parent route does not use this value as a BigInteger clamp.
 
-ACO's transactional V2 route must also be enabled on both sides:
+When the installed ACO configuration enables its transactional V2 route, it
+must be enabled on both sides:
 
 ```toml
 [experimentalCraftingEngine]
