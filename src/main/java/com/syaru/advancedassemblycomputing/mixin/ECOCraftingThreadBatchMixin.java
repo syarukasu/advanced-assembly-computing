@@ -8,6 +8,9 @@ import cn.dancingsnow.neoecoae.api.me.ECOCraftingThread;
 import cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingSystemBlockEntity;
 import cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingWorkerBlockEntity;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchThread;
+import com.syaru.advancedassemblycomputing.execution.AACRevisionMetrics;
+import com.syaru.advancedassemblycomputing.execution.AACRevisionState;
+import com.syaru.advancedassemblycomputing.execution.AACSnapshotCache;
 import com.syaru.advancedassemblycomputing.execution.PreparedCraftingTableWork;
 import com.syaru.advancedassemblycomputing.execution.VerifiedCraftingTableRecipe;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchMode;
@@ -83,6 +86,21 @@ public abstract class ECOCraftingThreadBatchMixin
     @Unique
     private Map<AEKey, BigInteger> aac$exactOutputs =
             Map.of();
+
+    @Unique
+    private final AACRevisionState aac$revisionState =
+            new AACRevisionState();
+
+    @Unique
+    private final AACSnapshotCache<CraftingTableBatchSnapshot>
+            aac$snapshotCache =
+                    new AACSnapshotCache<>();
+
+    @Unique
+    private int aac$lastProgress = -1;
+
+    @Unique
+    private boolean aac$lastOutputsReady;
 
     @Override
     public boolean aac$acceptCraftingTableBatch(
@@ -162,7 +180,12 @@ public abstract class ECOCraftingThreadBatchMixin
         aac$batchMode =
                 request.mode();
         aac$exactOutputs =
-                actualOutputs;
+                Map.copyOf(actualOutputs);
+        aac$lastProgress = 0;
+        aac$lastOutputsReady = false;
+        aac$touchRevision(
+                AACRevisionState.Change.OWNERSHIP,
+                "ACCEPTED");
         try {
             startVerifiedWork(
                     preparedWork,
@@ -271,28 +294,35 @@ public abstract class ECOCraftingThreadBatchMixin
         }
         ECOCraftingThread self =
                 (ECOCraftingThread) (Object) this;
-        boolean ready = outputsReady;
+        aac$refreshRevisions(self.getProgress(), outputsReady);
+        AACRevisionState.Revision revision =
+                aac$revisionState.current();
         return Optional.of(
-                new CraftingTableBatchSnapshot(
-                        transactionId,
-                        payloadDigest,
-                        ready
-                                ? CraftingTableBatchSnapshot.State
-                                        .OUTPUT_READY
-                                : CraftingTableBatchSnapshot.State
-                                        .RUNNING,
-                        Math.min(
-                                ECOCraftingThread.MAX_PROGRESS,
-                                Math.max(
-                                        0,
-                                        self.getProgress())),
-                        ECOCraftingThread.MAX_PROGRESS,
-                        ready
-                                ? aac$exactOutputs
-                                : Map.of(),
-                        ready
-                                ? "NeoECO worker output is ready"
-                                : "NeoECO worker is crafting"));
+                aac$snapshotCache.get(
+                        revision.aggregateRevision(),
+                        () -> {
+                            boolean ready = outputsReady;
+                            return new CraftingTableBatchSnapshot(
+                                    transactionId,
+                                    payloadDigest,
+                                    ready
+                                            ? CraftingTableBatchSnapshot.State
+                                                    .OUTPUT_READY
+                                            : CraftingTableBatchSnapshot.State
+                                                    .RUNNING,
+                                    Math.min(
+                                            ECOCraftingThread.MAX_PROGRESS,
+                                            Math.max(
+                                                    0,
+                                                    self.getProgress())),
+                                    ECOCraftingThread.MAX_PROGRESS,
+                                    ready
+                                            ? aac$exactOutputs
+                                            : Map.of(),
+                                    ready
+                                            ? "NeoECO worker output is ready"
+                                            : "NeoECO worker is crafting");
+                        }));
     }
 
     @Override
@@ -311,6 +341,9 @@ public abstract class ECOCraftingThreadBatchMixin
                 (ECOCraftingThread) (Object) this;
         int occupiedSlots = Math.max(1, self.getOccupiedThreadSlots());
         // ACOが正確なBigInteger出力を会計済みなので、代表出力をMEへ挿入せず解放する。
+        aac$touchRevision(
+                AACRevisionState.Change.RECEIPT,
+                "ACKNOWLEDGED");
         ((ECOCraftingThreadBatchAccessor) (Object) this)
                 .aac$invokeClearWork();
         worker.onThreadStop(occupiedSlots);
@@ -339,6 +372,9 @@ public abstract class ECOCraftingThreadBatchMixin
          * 代表一回分は実在庫ではないため、通常回収へ渡さずThread占有だけを解放する。
          * 実境界入力の返却はACO親Transactionが行う。
          */
+        aac$touchRevision(
+                AACRevisionState.Change.OWNERSHIP,
+                "CANCELLED");
         ((ECOCraftingThreadBatchAccessor) (Object) this)
                 .aac$invokeClearWork();
         worker.onThreadStop(occupiedSlots);
@@ -368,8 +404,24 @@ public abstract class ECOCraftingThreadBatchMixin
         if (!aac$isBigIntegerBatch()) {
             return;
         }
-        // BigInteger出力はACOが正本を会計するまでThread内へ保持する。
-        callbackInfo.setReturnValue(TickRateModulation.URGENT);
+        // BigInteger出力はACOが正本を会計するまで保持し、ACK通知で直接起こす。
+        AACRevisionMetrics.outputReadySleepTick();
+        callbackInfo.setReturnValue(TickRateModulation.SLEEP);
+    }
+
+    @Inject(method = "tick", at = @At("RETURN"))
+    private void aac$publishChangedThreadRevision(
+            int availablePower,
+            int maxPower,
+            int maxProgress,
+            CallbackInfoReturnable<TickRateModulation> callbackInfo) {
+        if (aac$isManagedCraftingTableBatch()) {
+            ECOCraftingThread self =
+                    (ECOCraftingThread) (Object) this;
+            aac$refreshRevisions(
+                    self.getProgress(),
+                    outputsReady);
+        }
     }
 
     @Inject(
@@ -597,5 +649,48 @@ public abstract class ECOCraftingThreadBatchMixin
         aac$payloadDigest = "";
         aac$batchMode = null;
         aac$exactOutputs = Map.of();
+        aac$snapshotCache.clear();
+        aac$lastProgress = -1;
+        aac$lastOutputsReady = false;
+    }
+
+    @Unique
+    private void aac$refreshRevisions(
+            int progress,
+            boolean ready) {
+        int checkedProgress = Math.min(
+                ECOCraftingThread.MAX_PROGRESS,
+                Math.max(0, progress));
+        if (checkedProgress != aac$lastProgress) {
+            aac$lastProgress = checkedProgress;
+            aac$touchRevision(
+                    AACRevisionState.Change.PROGRESS,
+                    "PROGRESS");
+        }
+        if (ready != aac$lastOutputsReady) {
+            aac$lastOutputsReady = ready;
+            aac$touchRevision(
+                    AACRevisionState.Change.RECEIPT,
+                    ready
+                            ? "OUTPUT_READY"
+                            : "OUTPUT_NOT_READY");
+        }
+    }
+
+    @Unique
+    private void aac$touchRevision(
+            AACRevisionState.Change change,
+            String stateHint) {
+        if (aac$batchTransactionId == null
+                || worker.getLevel() == null) {
+            return;
+        }
+        long position = worker.getBlockPos().asLong();
+        aac$revisionState.touchAndPublish(
+                "aac:worker:" + position,
+                "aac:thread:" + position,
+                aac$batchTransactionId.toString(),
+                change,
+                stateHint);
     }
 }

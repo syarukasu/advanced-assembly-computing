@@ -31,6 +31,8 @@ public final class AACCraftingTableTerminalReceiptLedger {
 
     private final Map<UUID, Receipt> receipts =
             new LinkedHashMap<>();
+    private final Map<UUID, AACSnapshotCache<CraftingTableBatchSnapshot>>
+            snapshotCaches = new LinkedHashMap<>();
     private boolean corrupted;
     private CompoundTag lockedPayload;
 
@@ -73,15 +75,21 @@ public final class AACCraftingTableTerminalReceiptLedger {
                                         payloadDigest))) {
             return Optional.empty();
         }
-        return Optional.of(
-                new CraftingTableBatchSnapshot(
+        AACSnapshotCache<CraftingTableBatchSnapshot> cache =
+                snapshotCaches.computeIfAbsent(
                         receipt.transactionId(),
-                        receipt.payloadDigest(),
-                        CraftingTableBatchSnapshot.State.ACKNOWLEDGED,
-                        1,
-                        1,
-                        receipt.exactOutputs(),
-                        "NeoECO worker completed and retained a durable receipt"));
+                        ignored -> new AACSnapshotCache<>());
+        return Optional.of(
+                cache.get(
+                        1L,
+                        () -> new CraftingTableBatchSnapshot(
+                                receipt.transactionId(),
+                                receipt.payloadDigest(),
+                                CraftingTableBatchSnapshot.State.ACKNOWLEDGED,
+                                1,
+                                1,
+                                receipt.exactOutputs(),
+                                "NeoECO worker completed and retained a durable receipt")));
     }
 
     public synchronized boolean record(
@@ -113,6 +121,8 @@ public final class AACCraftingTableTerminalReceiptLedger {
         receipts.put(
                 replacement.transactionId(),
                 replacement);
+        snapshotCaches.remove(
+                replacement.transactionId());
         return true;
     }
 
@@ -142,6 +152,8 @@ public final class AACCraftingTableTerminalReceiptLedger {
             return false;
         }
         receipts.remove(
+                checkedId);
+        snapshotCaches.remove(
                 checkedId);
         return true;
     }
@@ -190,6 +202,7 @@ public final class AACCraftingTableTerminalReceiptLedger {
     public synchronized void load(
             CompoundTag owner) {
         receipts.clear();
+        snapshotCaches.clear();
         corrupted =
                 false;
         lockedPayload =
@@ -258,6 +271,7 @@ public final class AACCraftingTableTerminalReceiptLedger {
     private void lock(
             CompoundTag owner) {
         receipts.clear();
+        snapshotCaches.clear();
         corrupted =
                 true;
         lockedPayload =

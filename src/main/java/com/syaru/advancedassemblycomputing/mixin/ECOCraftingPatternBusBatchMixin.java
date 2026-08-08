@@ -6,6 +6,7 @@ import com.syaru.advancedassemblycomputing.blockentity.VectorCraftingControllerB
 import com.syaru.advancedassemblycomputing.config.AACConfig;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchWorker;
 import com.syaru.advancedassemblycomputing.execution.AACPatternBusPersistentState;
+import com.syaru.advancedassemblycomputing.execution.AACRevisionIndex;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.NativeBatchReceipt;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.NativeBatchReceiptStore;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.ProviderOwnedPatternBatchTarget;
@@ -13,9 +14,7 @@ import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchReques
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchSnapshot;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchTarget;
 import com.syaru.ae2craftingoptimizer.batch.NativeBatchReceiptLedger;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
@@ -46,9 +45,9 @@ public abstract class ECOCraftingPatternBusBatchMixin
 
     /** Transactionから実Workerへ引く、NBTへ重複保存しない遅延索引。 */
     @Unique
-    private final Map<UUID, ECOCraftingWorkerBlockEntity>
+    private final AACRevisionIndex<ECOCraftingWorkerBlockEntity>
             aac$workersByTransaction =
-                    new HashMap<>();
+                    new AACRevisionIndex<>();
 
     @Override
     public BlockEntity aco$getProviderOwnedBatchTarget() {
@@ -113,6 +112,7 @@ public abstract class ECOCraftingPatternBusBatchMixin
                             controller)) {
                 aac$workersByTransaction.put(
                         request.transactionId(),
+                        request.payloadDigest(),
                         worker);
                 nextWorkerIndex =
                         (index + 1)
@@ -302,8 +302,8 @@ public abstract class ECOCraftingPatternBusBatchMixin
     public void aac$loadPatternBusBatchState(
             CompoundTag data,
             HolderLookup.Provider registries) {
-        // Worker一覧は親MODが復元するため、実行時索引だけを空にして遅延再構築する。
-        aac$workersByTransaction.clear();
+        // Worker一覧は親MODが復元するため、索引は再起動後に一度だけ再構築する。
+        aac$workersByTransaction.requestRebuild();
         aac$batchReceipts.load(
                 data.getCompound(
                         AAC_RECEIPTS_NBT));
@@ -315,33 +315,24 @@ public abstract class ECOCraftingPatternBusBatchMixin
             String payloadDigest) {
         ECOCraftingPatternBusBlockEntity self =
                 (ECOCraftingPatternBusBlockEntity) (Object) this;
-        ECOCraftingWorkerBlockEntity cached =
-                aac$workersByTransaction.get(
-                        transactionId);
-        /*
-         * キャッシュしたWorkerが同じLevel・BlockPosの実Block Entityであり、
-         * 同じPayloadを所有する場合だけ定数時間の索引を使う。
-         */
-        if (cached != null
-                && !cached.isRemoved()
-                && cached.getLevel() != null
-                && cached.getLevel()
-                                .getBlockEntity(
-                                        cached.getBlockPos())
-                        == cached
-                && cached
-                        instanceof AACCraftingTableBatchWorker batchWorker
-                && batchWorker
-                        .aac$ownsCraftingTableBatch(
-                                transactionId,
-                                payloadDigest)) {
-            return Optional.of(
-                    cached);
+        Optional<ECOCraftingWorkerBlockEntity> indexed =
+                aac$workersByTransaction.lookup(
+                        transactionId,
+                        payloadDigest,
+                        worker -> !worker.isRemoved()
+                                && worker.getLevel() != null
+                                && worker.getLevel().getBlockEntity(
+                                        worker.getBlockPos()) == worker
+                                && worker
+                                        instanceof AACCraftingTableBatchWorker batchWorker
+                                && batchWorker.aac$ownsCraftingTableBatch(
+                                        transactionId,
+                                        payloadDigest));
+        if (indexed.isPresent()) {
+            return indexed;
         }
-        // 構造変更で無効になった索引は、現在Clusterを調べる前に除去する。
-        if (cached != null) {
-            aac$workersByTransaction.remove(
-                    transactionId);
+        if (!aac$workersByTransaction.rebuildRequired()) {
+            return Optional.empty();
         }
         // 未形成中は別設備へ所有権を推測せず、再形成後の照会を待つ。
         if (self.getCluster() == null) {
@@ -351,23 +342,26 @@ public abstract class ECOCraftingPatternBusBatchMixin
          * 再起動直後または構造変更直後だけ、現在ClusterのWorkerを一巡する。
          * 一致したWorkerは以後Transaction IDから直接取得する。
          */
-        for (ECOCraftingWorkerBlockEntity worker :
-                self.getCluster()
-                        .getWorkers()) {
-            // AAC契約があり、同じReceiptを所有する一件だけを索引へ登録する。
-            if (worker
-                            instanceof AACCraftingTableBatchWorker batchWorker
-                    && batchWorker
-                            .aac$ownsCraftingTableBatch(
-                                    transactionId,
-                                    payloadDigest)) {
-                aac$workersByTransaction.put(
-                        transactionId,
-                        worker);
-                return Optional.of(
-                        worker);
-            }
-        }
-        return Optional.empty();
+        aac$workersByTransaction.rebuild(
+                self.getCluster().getWorkers(),
+                worker -> worker
+                                instanceof AACCraftingTableBatchWorker batchWorker
+                        && batchWorker.aac$ownsCraftingTableBatch(
+                                transactionId,
+                                payloadDigest)
+                                ? Optional.of(
+                                        new AACRevisionIndex.IndexedTarget<>(
+                                                transactionId,
+                                                payloadDigest,
+                                                worker))
+                                : Optional.empty());
+        return aac$workersByTransaction.lookup(
+                transactionId,
+                payloadDigest,
+                worker -> worker
+                                instanceof AACCraftingTableBatchWorker batchWorker
+                        && batchWorker.aac$ownsCraftingTableBatch(
+                                transactionId,
+                                payloadDigest));
     }
 }

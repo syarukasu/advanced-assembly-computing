@@ -70,7 +70,7 @@ dependencies {
     implementation files(requiredMod('ldlib2-neoforge-1.21.1-2.2.32-all.jar'))
     compileOnly 'com.tterrag.registrate:Registrate:MC1.21.1-1.4.8'
 
-    def acoJar = file('../ae2-crafting-optimizer/build/libs/ae2-crafting-optimizer-1.6.0.jar')
+    def acoJar = file('../ae2-crafting-optimizer-src/build/libs/ae2-crafting-optimizer-1.6.1.jar')
     if (!acoJar.isFile()) {
         throw new GradleException("Required ACO 1.21.1 build is missing: ${acoJar}")
     }

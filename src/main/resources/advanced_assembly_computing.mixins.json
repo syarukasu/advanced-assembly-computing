@@ -9,6 +9,7 @@
     "ECOCraftingSystemBuildDefinitionMixin",
     "ECOCraftingThreadBatchAccessor",
     "ECOCraftingThreadBatchMixin",
+    "ECOCraftingWorkerBatchAccessor",
     "ECOCraftingWorkerBatchMixin",
     "NECraftingClusterCalculatorMixin"
   ],
