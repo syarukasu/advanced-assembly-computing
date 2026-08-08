@@ -7,7 +7,11 @@ group = mod_group
 version = mod_version
 
 base {
-    archivesName = 'advanced-assembly-computing'
+    archivesName = "aac${mod_version}_${minecraft_version}"
+}
+
+tasks.named('jar') {
+    archiveFileName = "aac${mod_version}_${minecraft_version}.jar"
 }
 
 java {
@@ -70,12 +74,28 @@ dependencies {
     implementation files(requiredMod('ldlib2-neoforge-1.21.1-2.2.32-all.jar'))
     compileOnly 'com.tterrag.registrate:Registrate:MC1.21.1-1.4.8'
 
-    def acoJar = file('../ae2-crafting-optimizer-src/build/libs/ae2-crafting-optimizer-1.6.2.jar')
-    if (!acoJar.isFile()) {
-        throw new GradleException("Required ACO 1.21.1 build is missing: ${acoJar}")
+    def acoJarProperty = findProperty('acoJar')
+    if (acoJarProperty != null) {
+        File acoJar = file(acoJarProperty)
+        if (!acoJar.isFile()) {
+            throw new GradleException("ACO contract JAR is missing: ${acoJar}")
+        }
+        def acoArchive = new java.util.jar.JarFile(acoJar)
+        try {
+            def metadataEntry = acoArchive.getJarEntry('META-INF/neoforge.mods.toml')
+            if (metadataEntry == null) {
+                throw new GradleException("ACO contract JAR is not a NeoForge 1.21.1 artifact: ${acoJar}")
+            }
+            def metadata = acoArchive.getInputStream(metadataEntry).getText('UTF-8')
+            if (!metadata.contains('modId = "ae2_crafting_optimizer"')) {
+                throw new GradleException("ACO contract JAR has unexpected mod metadata: ${acoJar}")
+            }
+        } finally {
+            acoArchive.close()
+        }
+        compileOnly files(acoJar)
+        testImplementation files(acoJar)
     }
-    compileOnly files(acoJar)
-    testImplementation files(acoJar)
 
     annotationProcessor 'org.spongepowered:mixin:0.8.7:processor'
 
