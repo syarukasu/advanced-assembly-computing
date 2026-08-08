@@ -5,6 +5,8 @@ import cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingWorkerBlockEnti
 import com.syaru.advancedassemblycomputing.blockentity.VectorCraftingControllerBlockEntity;
 import com.syaru.advancedassemblycomputing.config.AACConfig;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchWorker;
+import com.syaru.advancedassemblycomputing.execution.AACPerformanceMetrics;
+import com.syaru.advancedassemblycomputing.execution.AACRevisionTracker;
 import com.syaru.advancedassemblycomputing.execution.AACNativeBatchReceiptLedger;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.NativeBatchReceipt;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.NativeBatchReceiptStore;
@@ -13,9 +15,11 @@ import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchReques
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchSnapshot;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchTarget;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -49,6 +53,17 @@ public abstract class ECOCraftingPatternBusBatchMixin
     private final Map<UUID, ECOCraftingWorkerBlockEntity>
             aac$workersByTransaction =
                     new HashMap<>();
+
+    @Unique
+    private final Set<UUID> aac$knownMissingTransactions =
+            new HashSet<>();
+
+    @Unique
+    private boolean aac$workerIndexReady;
+
+    @Unique
+    private final AACRevisionTracker aac$revisions =
+            new AACRevisionTracker();
 
     @Override
     public BlockEntity aco$getProviderOwnedBatchTarget() {
@@ -114,6 +129,9 @@ public abstract class ECOCraftingPatternBusBatchMixin
                 aac$workersByTransaction.put(
                         request.transactionId(),
                         worker);
+                aac$knownMissingTransactions.remove(
+                        request.transactionId());
+                aac$revisions.ownershipChanged();
                 nextWorkerIndex =
                         (index + 1)
                                 % Math.max(
@@ -169,6 +187,8 @@ public abstract class ECOCraftingPatternBusBatchMixin
                                 transactionId,
                                 payloadDigest)) {
             self.saveChanges();
+            ((AACCraftingTableBatchWorker) active.orElseThrow())
+                    .aac$wakeForBatchChange();
             return true;
         }
         return false;
@@ -200,6 +220,8 @@ public abstract class ECOCraftingPatternBusBatchMixin
             if (forgotten) {
                 aac$workersByTransaction.remove(
                         transactionId);
+                aac$knownMissingTransactions.remove(transactionId);
+                aac$revisions.receiptChanged();
                 self.saveChanges();
             }
             return forgotten;
@@ -227,6 +249,8 @@ public abstract class ECOCraftingPatternBusBatchMixin
                                 payloadDigest)) {
             aac$workersByTransaction.remove(
                     transactionId);
+            aac$knownMissingTransactions.remove(transactionId);
+            aac$revisions.ownershipChanged();
             self.saveChanges();
             return true;
         }
@@ -306,8 +330,11 @@ public abstract class ECOCraftingPatternBusBatchMixin
     private void aac$loadBatchReceipts(
             CompoundTag data,
             CallbackInfo callbackInfo) {
-        // Worker一覧は親MODが復元するため、実行時索引だけを空にして遅延再構築する。
+        // Worker一覧は親MODが復元するため、索引は次の照会で一度だけ再構築する。
         aac$workersByTransaction.clear();
+        aac$knownMissingTransactions.clear();
+        aac$workerIndexReady = false;
+        aac$revisions.capacityChanged();
         aac$batchReceipts.load(
                 data.getCompound(
                         AAC_RECEIPTS_NBT));
@@ -347,14 +374,33 @@ public abstract class ECOCraftingPatternBusBatchMixin
             aac$workersByTransaction.remove(
                     transactionId);
         }
+        if (aac$knownMissingTransactions.contains(transactionId)) {
+            AACPerformanceMetrics.pollAvoided();
+            return Optional.empty();
+        }
         // 未形成中は別設備へ所有権を推測せず、再形成後の照会を待つ。
         if (self.getCluster() == null) {
             return Optional.empty();
+        }
+        if (!aac$workerIndexReady) {
+            aac$rebuildWorkerIndex(self);
+        }
+        cached = aac$workersByTransaction.get(transactionId);
+        if (cached != null
+                && !cached.isRemoved()
+                && cached.getLevel() != null
+                && cached.getLevel().getBlockEntity(cached.getBlockPos()) == cached
+                && cached instanceof AACCraftingTableBatchWorker batchWorker
+                && batchWorker.aac$ownsCraftingTableBatch(
+                        transactionId,
+                        payloadDigest)) {
+            return Optional.of(cached);
         }
         /*
          * 再起動直後または構造変更直後だけ、現在ClusterのWorkerを一巡する。
          * 一致したWorkerは以後Transaction IDから直接取得する。
          */
+        AACPerformanceMetrics.threadScan();
         for (ECOCraftingWorkerBlockEntity worker :
                 self.getCluster()
                         .getWorkers()) {
@@ -372,6 +418,25 @@ public abstract class ECOCraftingPatternBusBatchMixin
                         worker);
             }
         }
+        aac$knownMissingTransactions.add(transactionId);
         return Optional.empty();
+    }
+
+    @Unique
+    private void aac$rebuildWorkerIndex(
+            ECOCraftingPatternBusBlockEntity self) {
+        aac$workersByTransaction.clear();
+        aac$knownMissingTransactions.clear();
+        for (ECOCraftingWorkerBlockEntity worker :
+                self.getCluster().getWorkers()) {
+            if (worker instanceof AACCraftingTableBatchWorker batchWorker) {
+                for (UUID transactionId : batchWorker.aac$knownTransactionIds()) {
+                    aac$workersByTransaction.put(transactionId, worker);
+                }
+            }
+        }
+        aac$workerIndexReady = true;
+        aac$revisions.capacityChanged();
+        AACPerformanceMetrics.fullIndexRebuild();
     }
 }

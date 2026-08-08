@@ -88,6 +88,12 @@ No representative stack may enter ME storage or world drops.
 Also verify that the first post-restart lookup rebuilds the UUID ownership
 index and subsequent polling does not scan the full Worker/Thread lists.
 
+For the revision path, verify with the AAC diagnostics that unchanged running
+polls reuse the same snapshot, `OUTPUT_READY` accounting-only Threads sleep,
+and acknowledge/cancel cause a targeted Neo ECO wakeup. A restart may perform
+one bounded index rebuild; repeated misses for the same transaction must not
+rescan every Thread.
+
 ## Cancellation
 
 1. Cancel a running BigInteger physical step.

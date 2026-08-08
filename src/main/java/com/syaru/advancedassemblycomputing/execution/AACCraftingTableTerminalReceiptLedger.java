@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -280,6 +281,15 @@ public final class AACCraftingTableTerminalReceiptLedger {
                 && quarantinedEntries.isEmpty()
                 && unknownQuarantinedEntries.isEmpty()
                 && !corrupted;
+    }
+
+    /** Immutable keys for the Worker-side transaction index rebuild. */
+    public synchronized Set<UUID> transactionIds() {
+        java.util.LinkedHashSet<UUID> result =
+                new java.util.LinkedHashSet<>(receipts.keySet());
+        result.addAll(reservations.keySet());
+        result.addAll(quarantinedEntries.keySet());
+        return Set.copyOf(result);
     }
 
     public synchronized CompoundTag save() {
