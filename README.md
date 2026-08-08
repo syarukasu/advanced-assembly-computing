@@ -1,6 +1,6 @@
 # Advanced Assembly Computing
 
-Advanced Assembly Computing (AAC) is a NeoForge 1.21.1 add-on that connects AE2
+Advanced Assembly Computing (AAC) 1.1.1 is a NeoForge 1.21.1 add-on that connects AE2
 Crafting Optimizer's exact crafting-table transactions to Neo ECO AE
 Extension's real crafting multiblock.
 

@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-08-08
+
 ### Changed
 
 - Replaced AAC's repeated Worker/Thread lookup scans with revision-aware
@@ -14,7 +16,8 @@
 - Reused immutable live and terminal-receipt snapshots while their revision is
   unchanged, and added counters for avoided polls, wakeups, index rebuilds,
   thread scans, snapshot allocations, and output-ready sleep ticks.
-- Updated the AAC build contract to ACO `1.6.1`.
+- Updated and verified the AAC build contract against the ACO 1.6.x public
+  contract.
 
 ## [1.1.0] - 2026-08-02
 
