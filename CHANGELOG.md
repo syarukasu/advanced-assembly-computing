@@ -24,7 +24,7 @@
 - Reused immutable live and terminal-receipt snapshots while their revision is
   unchanged, and added counters for avoided polls, wakeups, index rebuilds,
   thread scans, snapshot allocations, and output-ready sleep ticks.
-- Updated and verified the AAC build contract against the ACO 1.5.7 public
+- Updated and verified the AAC build contract against the ACO 1.6.x public
   contract.
 
 ## [1.1.0] - 2026-08-02
