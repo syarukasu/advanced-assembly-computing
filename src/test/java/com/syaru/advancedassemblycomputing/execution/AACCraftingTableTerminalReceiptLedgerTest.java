@@ -123,6 +123,62 @@ final class AACCraftingTableTerminalReceiptLedgerTest {
                                 BigInteger.TWO)));
     }
 
+    @Test
+    void reservesReceiptCapacityBeforePhysicalCommit() {
+        AACCraftingTableTerminalReceiptLedger ledger =
+                new AACCraftingTableTerminalReceiptLedger();
+        UUID transactionId =
+                UUID.randomUUID();
+        AEKey output =
+                new TestKey(
+                        "output");
+
+        assertTrue(
+                ledger.reserve(
+                        transactionId,
+                        "aco:reserved"));
+        // 異なるPayloadが同じ枠を奪うことはできない。
+        assertFalse(
+                ledger.reserve(
+                        transactionId,
+                        "aco:other"));
+        // 予約済み枠は容量上限到達後でも完了Receiptへ昇格できる。
+        assertTrue(
+                ledger.record(
+                        transactionId,
+                        "aco:reserved",
+                        Map.of(
+                                output,
+                                BigInteger.ONE)));
+        assertTrue(
+                ledger.contains(
+                        transactionId,
+                        "aco:reserved"));
+    }
+
+    @Test
+    void releasesUncommittedReceiptReservation() {
+        AACCraftingTableTerminalReceiptLedger ledger =
+                new AACCraftingTableTerminalReceiptLedger();
+        UUID transactionId =
+                UUID.randomUUID();
+
+        assertTrue(
+                ledger.reserve(
+                        transactionId,
+                        "aco:reserved"));
+        assertFalse(
+                ledger.releaseReservation(
+                        transactionId,
+                        "aco:other"));
+        assertTrue(
+                ledger.releaseReservation(
+                        transactionId,
+                        "aco:reserved"));
+        assertTrue(
+                ledger.isEmpty());
+    }
+
     /** Minecraft Registryを起動せず、終端Receiptの所有権だけを試験する最小AEKey。 */
     private static final class TestKey extends AEKey {
         private final String id;

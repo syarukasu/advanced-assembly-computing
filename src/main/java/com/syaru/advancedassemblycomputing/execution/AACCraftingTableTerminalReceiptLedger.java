@@ -30,6 +30,8 @@ public final class AACCraftingTableTerminalReceiptLedger {
 
     private final Map<UUID, Receipt> receipts =
             new LinkedHashMap<>();
+    private final Map<UUID, String> reservations =
+            new LinkedHashMap<>();
     private boolean corrupted;
     private CompoundTag lockedPayload;
 
@@ -104,14 +106,85 @@ public final class AACCraftingTableTerminalReceiptLedger {
             return existing.equals(
                     replacement);
         }
+        String reservationDigest =
+                reservations.get(
+                        replacement.transactionId());
+        if (reservationDigest != null
+                && !reservationDigest.equals(
+                        replacement.payloadDigest())) {
+            return false;
+        }
         // 上限時は古い証明を推測で捨てず、親Jobの明示forgetを待つ。
-        if (receipts.size()
+        if (reservationDigest == null
+                && receipts.size()
                 >= MAXIMUM_RECEIPTS) {
             return false;
         }
+        reservations.remove(
+                replacement.transactionId());
         receipts.put(
                 replacement.transactionId(),
                 replacement);
+        return true;
+    }
+
+    /**
+     * 受理前に、完了時のReceipt枠をTransaction単位で予約する。
+     * 同一Transactionの同一Payloadだけは冪等に再利用できる。
+     */
+    public synchronized boolean reserve(
+            UUID transactionId,
+            String payloadDigest) {
+        if (corrupted) {
+            return false;
+        }
+        UUID checkedId =
+                Objects.requireNonNull(
+                        transactionId,
+                        "transactionId");
+        String checkedDigest =
+                checkedDigest(
+                        payloadDigest);
+        Receipt existing =
+                receipts.get(checkedId);
+        if (existing != null) {
+            return existing.payloadDigest()
+                    .equals(checkedDigest);
+        }
+        String reserved =
+                reservations.get(checkedId);
+        if (reserved != null) {
+            return reserved.equals(checkedDigest);
+        }
+        if (receipts.size() + reservations.size()
+                >= MAXIMUM_RECEIPTS) {
+            return false;
+        }
+        reservations.put(
+                checkedId,
+                checkedDigest);
+        return true;
+    }
+
+    /** 受理失敗・取消時に、まだ完了Receiptになっていない枠だけを戻す。 */
+    public synchronized boolean releaseReservation(
+            UUID transactionId,
+            String payloadDigest) {
+        UUID checkedId =
+                Objects.requireNonNull(
+                        transactionId,
+                        "transactionId");
+        String reserved =
+                reservations.get(checkedId);
+        if (reserved == null) {
+            return true;
+        }
+        if (!reserved.equals(
+                checkedDigest(
+                        payloadDigest))) {
+            return false;
+        }
+        reservations.remove(checkedId);
         return true;
     }
 
@@ -131,7 +204,9 @@ public final class AACCraftingTableTerminalReceiptLedger {
                         checkedId);
         // 既に削除済みなら、親Jobの再送を冪等な成功として扱う。
         if (existing == null) {
-            return true;
+            return releaseReservation(
+                    checkedId,
+                    payloadDigest);
         }
         // 同じUUIDの別Payloadを削除しない。
         if (!existing.payloadDigest()
@@ -147,6 +222,7 @@ public final class AACCraftingTableTerminalReceiptLedger {
 
     public synchronized boolean isEmpty() {
         return receipts.isEmpty()
+                && reservations.isEmpty()
                 && !corrupted;
     }
 
@@ -183,12 +259,31 @@ public final class AACCraftingTableTerminalReceiptLedger {
         owner.put(
                 "entries",
                 entries);
+        ListTag pendingReservations =
+                new ListTag();
+        for (Map.Entry<UUID, String> reservation :
+                reservations.entrySet()) {
+            CompoundTag entry =
+                    new CompoundTag();
+            entry.putUUID(
+                    "transactionId",
+                    reservation.getKey());
+            entry.putString(
+                    "payloadDigest",
+                    reservation.getValue());
+            pendingReservations.add(
+                    entry);
+        }
+        owner.put(
+                "reservations",
+                pendingReservations);
         return owner;
     }
 
     public synchronized void load(
             CompoundTag owner) {
         receipts.clear();
+        reservations.clear();
         corrupted =
                 false;
         lockedPayload =
@@ -200,6 +295,9 @@ public final class AACCraftingTableTerminalReceiptLedger {
         Tag rawEntries =
                 owner.get(
                         "entries");
+        Tag rawReservations =
+                owner.get(
+                        "reservations");
         // 未知schema、型違い、過大件数は部分復元せず台帳全体をロックする。
         if (owner.getInt(
                             "schema")
@@ -210,6 +308,18 @@ public final class AACCraftingTableTerminalReceiptLedger {
                         && entries.getElementType()
                                 != Tag.TAG_COMPOUND)
                 || entries.size()
+                        > MAXIMUM_RECEIPTS
+                || (rawReservations != null
+                        && (!(rawReservations instanceof ListTag pending)
+                                || (!pending.isEmpty()
+                                        && pending.getElementType()
+                                                != Tag.TAG_COMPOUND)
+                                || pending.size()
+                                        > MAXIMUM_RECEIPTS))
+                || entries.size()
+                        + (rawReservations instanceof ListTag pending
+                                ? pending.size()
+                                : 0)
                         > MAXIMUM_RECEIPTS) {
             lock(
                     owner);
@@ -250,6 +360,41 @@ public final class AACCraftingTableTerminalReceiptLedger {
                 lock(
                         owner);
                 return;
+            }
+        }
+        if (rawReservations instanceof ListTag pending) {
+            for (int index = 0;
+                    index < pending.size();
+                    index++) {
+                try {
+                    CompoundTag entry =
+                            pending.getCompound(
+                                    index);
+                    if (!entry.hasUUID(
+                            "transactionId")) {
+                        throw new IllegalArgumentException(
+                                "receipt reservation has no transaction id");
+                    }
+                    UUID transactionId =
+                            entry.getUUID(
+                                    "transactionId");
+                    String digest =
+                            checkedDigest(
+                                    entry.getString(
+                                            "payloadDigest"));
+                    if (receipts.containsKey(transactionId)
+                            || reservations.putIfAbsent(
+                                            transactionId,
+                                            digest)
+                                    != null) {
+                        throw new IllegalArgumentException(
+                                "duplicate receipt reservation");
+                    }
+                } catch (RuntimeException | LinkageError invalid) {
+                    lock(
+                            owner);
+                    return;
+                }
             }
         }
     }
