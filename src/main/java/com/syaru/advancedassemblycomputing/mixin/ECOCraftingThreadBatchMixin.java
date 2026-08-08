@@ -13,6 +13,7 @@ import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchWorker
 import com.syaru.advancedassemblycomputing.execution.AACPerformanceMetrics;
 import com.syaru.advancedassemblycomputing.execution.AACRevisionTracker;
 import com.syaru.advancedassemblycomputing.execution.AACThreadSidecarFailure;
+import com.syaru.advancedassemblycomputing.execution.AacThreadState;
 import com.syaru.advancedassemblycomputing.execution.InvalidSidecarException;
 import com.syaru.advancedassemblycomputing.execution.PreparedCraftingTableWork;
 import com.syaru.advancedassemblycomputing.execution.VerifiedCraftingTableRecipe;
@@ -64,13 +65,6 @@ public abstract class ECOCraftingThreadBatchMixin
     private static final String NBT_FAILURE_CATEGORY = "failureCategory";
     private static final String NBT_FAILURE_SUMMARY = "failureSummary";
     private static final int MAXIMUM_FAILURE_SUMMARY_LENGTH = 256;
-
-    private enum AacThreadState {
-        NONE,
-        RUNNING,
-        OUTPUT_READY,
-        QUARANTINED
-    }
 
     @Shadow
     @Final
