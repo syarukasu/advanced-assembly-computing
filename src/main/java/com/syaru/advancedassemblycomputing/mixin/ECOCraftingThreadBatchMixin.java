@@ -13,6 +13,7 @@ import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchWorker
 import com.syaru.advancedassemblycomputing.execution.AACPerformanceMetrics;
 import com.syaru.advancedassemblycomputing.execution.AACRevisionTracker;
 import com.syaru.advancedassemblycomputing.execution.AACThreadSidecarFailure;
+import com.syaru.advancedassemblycomputing.execution.InvalidSidecarException;
 import com.syaru.advancedassemblycomputing.execution.PreparedCraftingTableWork;
 import com.syaru.advancedassemblycomputing.execution.VerifiedCraftingTableRecipe;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchMode;
@@ -1067,7 +1068,7 @@ public abstract class ECOCraftingThreadBatchMixin
                 raw.copy();
         aac$quarantineFailure =
                 failure instanceof InvalidSidecarException invalid
-                        ? invalid.category
+                        ? invalid.category()
                         : AACThreadSidecarFailure.INTERNAL_VALIDATION_ERROR;
         aac$quarantineSummary =
                 aac$boundedSummary(
@@ -1203,23 +1204,4 @@ public abstract class ECOCraftingThreadBatchMixin
                         MAXIMUM_FAILURE_SUMMARY_LENGTH);
     }
 
-    private static final class InvalidSidecarException
-            extends IllegalArgumentException {
-        private final AACThreadSidecarFailure category;
-
-        private InvalidSidecarException(
-                AACThreadSidecarFailure category,
-                String message) {
-            super(message);
-            this.category = category;
-        }
-
-        private InvalidSidecarException(
-                AACThreadSidecarFailure category,
-                String message,
-                Throwable cause) {
-            super(message, cause);
-            this.category = category;
-        }
-    }
 }
