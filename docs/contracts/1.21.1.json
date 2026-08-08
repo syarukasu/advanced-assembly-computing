@@ -1,0 +1,21 @@
+{
+  "minecraft": "1.21.1",
+  "java": 21,
+  "neoforge": "21.1.247",
+  "neoEco": ["21.1.1"],
+  "ldlib": ["2.2.32"],
+  "aco": {
+    "patternBatchApi": 4,
+    "publicRecordView": true,
+    "exactCountBits": 1048576,
+    "receiptStoreProtocol": 1
+  },
+  "requiredMixins": {
+    "thread": "cn.dancingsnow.neoecoae.api.me.ECOCraftingThread",
+    "worker": "cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingWorkerBlockEntity",
+    "patternBus": "cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingPatternBusBlockEntity",
+    "clusterCalculator": "cn.dancingsnow.neoecoae.multiblock.calculator.NECraftingClusterCalculator"
+  },
+  "mixinPolicy": "fail-closed-before-aac-job-acceptance",
+  "status": "separate-branch-contract"
+}

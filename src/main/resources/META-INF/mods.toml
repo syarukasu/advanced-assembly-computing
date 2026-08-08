@@ -39,14 +39,14 @@ side = "BOTH"
 [[dependencies.advanced_assembly_computing]]
 modId = "neoecoae"
 mandatory = true
-versionRange = "[20.3.0,20.4.0)"
+versionRange = "[20.3.0,20.3.1)"
 ordering = "AFTER"
 side = "BOTH"
 
 [[dependencies.advanced_assembly_computing]]
 modId = "ae2_crafting_optimizer"
 mandatory = true
-versionRange = "[1.5.4,1.6.0)"
+versionRange = "[1.5.6,1.6.0)"
 ordering = "AFTER"
 side = "BOTH"
 
