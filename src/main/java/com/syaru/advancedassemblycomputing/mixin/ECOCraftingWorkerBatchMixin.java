@@ -7,12 +7,12 @@ import com.syaru.advancedassemblycomputing.blockentity.VectorCraftingControllerB
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableTerminalReceiptLedger;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchThread;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchWorker;
+import com.syaru.advancedassemblycomputing.execution.AACRevisionIndex;
+import com.syaru.advancedassemblycomputing.execution.AACRevisionState;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchMode;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchRequest;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchSnapshot;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import net.minecraft.nbt.CompoundTag;
@@ -52,9 +52,13 @@ public abstract class ECOCraftingWorkerBatchMixin
      * <p>NBTへ重複保存せず、再起動後は最初の照会時にThread sidecarから遅延再構築する。</p>
      */
     @Unique
-    private final Map<UUID, AACCraftingTableBatchThread>
+    private final AACRevisionIndex<ECOCraftingThread>
             aac$threadsByTransaction =
-                    new HashMap<>();
+                    new AACRevisionIndex<>();
+
+    @Unique
+    private final AACRevisionState aac$revisionState =
+            new AACRevisionState();
 
     @Override
     public boolean aac$acceptCraftingTableBatch(
@@ -95,7 +99,11 @@ public abstract class ECOCraftingWorkerBatchMixin
                                 controller)) {
                     aac$threadsByTransaction.put(
                             request.transactionId(),
-                            batchThread);
+                            request.payloadDigest(),
+                            thread);
+                    aac$touchCapacity(
+                            request,
+                            "THREAD_ACCEPTED");
                     nextFreeThreadIndex =
                             (index + 1)
                                     % Math.max(
@@ -132,7 +140,11 @@ public abstract class ECOCraftingWorkerBatchMixin
                 thread);
         aac$threadsByTransaction.put(
                 request.transactionId(),
-                (AACCraftingTableBatchThread) (Object) thread);
+                request.payloadDigest(),
+                thread);
+        aac$touchCapacity(
+                request,
+                "THREAD_CREATED");
         nextFreeThreadIndex =
                 craftingThreads.size()
                         % Math.max(
@@ -225,6 +237,9 @@ public abstract class ECOCraftingWorkerBatchMixin
                             payloadDigest)) {
                 aac$threadsByTransaction.remove(
                         transactionId);
+                aac$wakeAndTouch(
+                        transactionId,
+                        "ACKNOWLEDGED");
                 ((ECOCraftingWorkerBlockEntity) (Object) this)
                         .setChanged();
                 return true;
@@ -282,6 +297,9 @@ public abstract class ECOCraftingWorkerBatchMixin
                                 payloadDigest)) {
             aac$threadsByTransaction.remove(
                     transactionId);
+            aac$wakeAndTouch(
+                    transactionId,
+                    "CANCELLED");
             ((ECOCraftingWorkerBlockEntity) (Object) this)
                     .setChanged();
             return true;
@@ -307,8 +325,8 @@ public abstract class ECOCraftingWorkerBatchMixin
             CompoundTag data,
             HolderLookup.Provider registries,
             CallbackInfo callbackInfo) {
-        // Thread一覧は親MODが復元するため、実行時索引だけを空にして遅延再構築する。
-        aac$threadsByTransaction.clear();
+        // Thread一覧は親MODが復元するため、索引は再起動後に一度だけ再構築する。
+        aac$threadsByTransaction.requestRebuild();
         aac$terminalReceipts.load(
                 data.getCompound(
                         AAC_TERMINAL_RECEIPTS_NBT));
@@ -318,42 +336,79 @@ public abstract class ECOCraftingWorkerBatchMixin
     private Optional<AACCraftingTableBatchThread> aac$findThread(
             UUID transactionId,
             String payloadDigest) {
-        AACCraftingTableBatchThread cached =
-                aac$threadsByTransaction.get(
-                        transactionId);
-        // 索引先が現在も同じPayloadを所有する場合は、Thread総走査を省略する。
-        if (cached != null
-                && cached.aac$ownsCraftingTableBatch(
+        Optional<ECOCraftingThread> indexed =
+                aac$threadsByTransaction.lookup(
                         transactionId,
-                        payloadDigest)) {
-            return Optional.of(
-                    cached);
+                        payloadDigest,
+                        thread -> thread
+                                instanceof AACCraftingTableBatchThread batchThread
+                                && batchThread.aac$ownsCraftingTableBatch(
+                                        transactionId,
+                                        payloadDigest));
+        if (indexed.isPresent()
+                && indexed.orElseThrow()
+                        instanceof AACCraftingTableBatchThread batchThread) {
+            return Optional.of(batchThread);
         }
-        // 解放済みまたは別Payloadの古い索引を、次の再構築前に除去する。
-        if (cached != null) {
-            aac$threadsByTransaction.remove(
-                    transactionId);
+        if (!aac$threadsByTransaction.rebuildRequired()) {
+            return Optional.empty();
         }
-        /*
-         * 再起動直後または親MODがThread一覧を再構築した直後だけ一巡する。
-         * 見つけたThreadは以後Transaction IDから定数時間で取得する。
-         */
-        for (ECOCraftingThread thread :
-                craftingThreads) {
-            // AAC管理Threadかつ同一Payloadを所有する一件だけを索引へ登録する。
-            if (thread
-                            instanceof AACCraftingTableBatchThread batchThread
-                    && batchThread
-                            .aac$ownsCraftingTableBatch(
-                                    transactionId,
-                                    payloadDigest)) {
-                aac$threadsByTransaction.put(
+        // 再起動/明示的再構築の一回だけThread一覧を走査する。
+        aac$threadsByTransaction.rebuild(
+                craftingThreads,
+                thread -> thread
+                                instanceof AACCraftingTableBatchThread batchThread
+                        && batchThread.aac$ownsCraftingTableBatch(
+                                transactionId,
+                                payloadDigest)
+                                ? Optional.of(
+                                        new AACRevisionIndex.IndexedTarget<>(
+                                                transactionId,
+                                                payloadDigest,
+                                                thread))
+                                : Optional.empty());
+        return aac$threadsByTransaction.lookup(
                         transactionId,
-                        batchThread);
-                return Optional.of(
-                        batchThread);
-            }
-        }
-        return Optional.empty();
+                        payloadDigest,
+                        thread -> thread
+                                instanceof AACCraftingTableBatchThread batchThread
+                                && batchThread.aac$ownsCraftingTableBatch(
+                                        transactionId,
+                                        payloadDigest))
+                .flatMap(
+                        thread -> thread
+                                        instanceof AACCraftingTableBatchThread batchThread
+                                ? Optional.of(batchThread)
+                                : Optional.empty());
+    }
+
+    @Unique
+    private void aac$touchCapacity(
+            CraftingTableBatchRequest request,
+            String stateHint) {
+        long position = ((ECOCraftingWorkerBlockEntity) (Object) this)
+                .getBlockPos().asLong();
+        aac$revisionState.touchAndPublish(
+                "aac:worker:" + position,
+                "aac:worker-runtime:" + position,
+                request.transactionId().toString(),
+                AACRevisionState.Change.CAPACITY,
+                stateHint);
+    }
+
+    @Unique
+    private void aac$wakeAndTouch(
+            UUID transactionId,
+            String stateHint) {
+        long position = ((ECOCraftingWorkerBlockEntity) (Object) this)
+                .getBlockPos().asLong();
+        aac$revisionState.touchAndPublish(
+                "aac:worker:" + position,
+                "aac:worker-runtime:" + position,
+                transactionId.toString(),
+                AACRevisionState.Change.OWNERSHIP,
+                stateHint);
+        ((ECOCraftingWorkerBatchAccessor) (Object) this)
+                .aac$invokeWakeTickingDevice();
     }
 }
