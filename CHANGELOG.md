@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-08-08
+
+### Changed
+
+- Synchronized the NeoForge artifact version with the Forge 1.20.1 AAC 1.0.3
+  maintenance release.
+- The 1.20.1 line fixes the crafting-thread sidecar classloader failure; this
+  line keeps the same versioning scheme without changing its NeoForge runtime
+  implementation.
+
 ## [1.0.2] - 2026-08-08
 
 ### Changed
