@@ -22,6 +22,8 @@ public interface AACCraftingTableBatchThread {
     /** 隔離中のThreadは空きThreadに見えても新しい仕事を受け付けない。 */
     boolean aac$isQuarantined();
 
+    Optional<UUID> aac$ownerTransactionId();
+
     /** 既知のTransactionだけを、出力なしのQUARANTINED Snapshotとして公開する。 */
     Optional<CraftingTableBatchSnapshot>
             aac$quarantinedCraftingTableBatchSnapshot(UUID transactionId);

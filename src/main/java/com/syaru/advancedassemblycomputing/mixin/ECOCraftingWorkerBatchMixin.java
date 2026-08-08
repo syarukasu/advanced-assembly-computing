@@ -273,6 +273,8 @@ public abstract class ECOCraftingWorkerBatchMixin
             // 台帳上限またはPayload不一致ならThreadを解放せず、次tickの再試行を待つ。
             if (!aac$terminalReceipts.record(
                     transactionId,
+                    batchThread.aac$ownerTransactionId()
+                            .orElse(null),
                     payloadDigest,
                     completed.exactOutputs())) {
                 return false;
