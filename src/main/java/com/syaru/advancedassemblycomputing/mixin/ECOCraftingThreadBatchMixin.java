@@ -9,6 +9,7 @@ import cn.dancingsnow.neoecoae.api.me.ECOCraftingThread;
 import cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingSystemBlockEntity;
 import cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingWorkerBlockEntity;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchThread;
+import com.syaru.advancedassemblycomputing.execution.AACThreadSidecarFailure;
 import com.syaru.advancedassemblycomputing.execution.PreparedCraftingTableWork;
 import com.syaru.advancedassemblycomputing.execution.VerifiedCraftingTableRecipe;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchMode;
@@ -53,6 +54,18 @@ public abstract class ECOCraftingThreadBatchMixin
     private static final int SIDECAR_SCHEMA = 1;
     private static final String NBT_SIDECAR =
             "aacCraftingTableBatch";
+    private static final String NBT_STATE = "state";
+    private static final String NBT_QUARANTINE_RAW = "rawSidecar";
+    private static final String NBT_FAILURE_CATEGORY = "failureCategory";
+    private static final String NBT_FAILURE_SUMMARY = "failureSummary";
+    private static final int MAXIMUM_FAILURE_SUMMARY_LENGTH = 256;
+
+    private enum AacThreadState {
+        NONE,
+        RUNNING,
+        OUTPUT_READY,
+        QUARANTINED
+    }
 
     @Shadow
     @Final
@@ -81,11 +94,31 @@ public abstract class ECOCraftingThreadBatchMixin
     private Map<AEKey, BigInteger> aac$exactOutputs =
             Map.of();
 
+    @Unique
+    private AacThreadState aac$state = AacThreadState.NONE;
+
+    @Unique
+    private Tag aac$quarantinedRawSidecar;
+
+    @Unique
+    private AACThreadSidecarFailure aac$quarantineFailure =
+            AACThreadSidecarFailure.INTERNAL_VALIDATION_ERROR;
+
+    @Unique
+    private String aac$quarantineSummary = "";
+
+    @Unique
+    private UUID aac$quarantineTransactionId;
+
+    @Unique
+    private UUID aac$quarantineOwnerTransactionId;
+
     @Override
     public boolean aac$acceptCraftingTableBatch(
             CraftingTableBatchRequest request,
             ECOCraftingSystemBlockEntity controller) {
-        if (isBusy
+        if (aac$isQuarantined()
+                || isBusy
                 || !(request.pattern()
                         instanceof IMolecularAssemblerSupportedPattern pattern)
                 || worker.getLevel() == null) {
@@ -243,12 +276,52 @@ public abstract class ECOCraftingThreadBatchMixin
 
     @Override
     public boolean aac$isManagedCraftingTableBatch() {
-        return isBusy
+        return !aac$isQuarantined()
+                && isBusy
                 && aac$batchTransactionId != null
                 && aac$ownerTransactionId != null
                 && aac$batchMode != null
                 && !aac$payloadDigest.isBlank()
                 && !aac$exactOutputs.isEmpty();
+    }
+
+    @Override
+    public boolean aac$isQuarantined() {
+        return aac$state == AacThreadState.QUARANTINED;
+    }
+
+    @Override
+    public Optional<CraftingTableBatchSnapshot>
+            aac$quarantinedCraftingTableBatchSnapshot(
+                    UUID transactionId) {
+        if (!aac$isQuarantined()
+                || aac$quarantineTransactionId == null
+                || !aac$quarantineTransactionId.equals(transactionId)) {
+            return Optional.empty();
+        }
+        return Optional.of(
+                new CraftingTableBatchSnapshot(
+                        aac$quarantineTransactionId,
+                        "",
+                        CraftingTableBatchSnapshot.State.QUARANTINED,
+                        0,
+                        ECOCraftingThread.MAX_PROGRESS,
+                        Map.of(),
+                        "AAC Thread sidecar quarantined: "
+                                + aac$quarantineFailure.name()
+                                + ": "
+                                + aac$quarantineSummary));
+    }
+
+    @Override
+    public String aac$quarantineDiagnostic() {
+        return aac$quarantineFailure.name()
+                + ": "
+                + aac$quarantineSummary
+                + "; transactionId="
+                + String.valueOf(aac$quarantineTransactionId)
+                + "; ownerTransactionId="
+                + String.valueOf(aac$quarantineOwnerTransactionId);
     }
 
     @Override
@@ -261,6 +334,12 @@ public abstract class ECOCraftingThreadBatchMixin
             aac$craftingTableBatchSnapshot(
                     UUID transactionId,
                     String payloadDigest) {
+        Optional<CraftingTableBatchSnapshot> quarantined =
+                aac$quarantinedCraftingTableBatchSnapshot(
+                        transactionId);
+        if (quarantined.isPresent()) {
+            return quarantined;
+        }
         if (!aac$ownsCraftingTableBatch(
                 transactionId,
                 payloadDigest)) {
@@ -299,7 +378,8 @@ public abstract class ECOCraftingThreadBatchMixin
             String payloadDigest) {
         ECOCraftingThread self =
                 (ECOCraftingThread) (Object) this;
-        if (aac$batchMode
+        if (aac$isQuarantined()
+                || aac$batchMode
                         != CraftingTableBatchMode.BIG_INTEGER_JOB
                 || !self.isOutputReady()
                 || !aac$ownsCraftingTableBatch(
@@ -325,7 +405,8 @@ public abstract class ECOCraftingThreadBatchMixin
     public boolean aac$cancelCraftingTableBatch(
             UUID transactionId,
             String payloadDigest) {
-        if (aac$batchMode
+        if (aac$isQuarantined()
+                || aac$batchMode
                         != CraftingTableBatchMode.BIG_INTEGER_JOB
                 || !aac$ownsCraftingTableBatch(
                         transactionId,
@@ -361,7 +442,8 @@ public abstract class ECOCraftingThreadBatchMixin
          * BigInteger Threadのスタックは表示・進捗用の一回分であり、
          * 通常回収へ流すと実在庫を複製する。
          */
-        if (aac$isBigIntegerBatch()) {
+        if (aac$isBigIntegerBatch()
+                || aac$isQuarantined()) {
             callbackInfo.setReturnValue(false);
         }
     }
@@ -377,8 +459,33 @@ public abstract class ECOCraftingThreadBatchMixin
             MEStorage storage,
             CallbackInfoReturnable<Boolean> callbackInfo) {
         // 実入力を所有するACO親Receiptが取消または再開を確定するまで代表入力を返さない。
-        if (aac$isBigIntegerBatch()) {
+        if (aac$isBigIntegerBatch()
+                || aac$isQuarantined()) {
             callbackInfo.setReturnValue(false);
+        }
+    }
+
+    @Inject(
+            method = "collectOutputItems",
+            at = @At("HEAD"),
+            cancellable = true)
+    private void aac$hideQuarantinedOutputs(
+            CallbackInfoReturnable<KeyCounter> callbackInfo) {
+        // 隔離中の代表出力は、ME搬出・Receipt作成のどちらにも公開しない。
+        if (aac$isQuarantined()) {
+            callbackInfo.setReturnValue(new KeyCounter());
+        }
+    }
+
+    @Inject(
+            method = "applyOutputFlush",
+            at = @At("HEAD"),
+            cancellable = true)
+    private void aac$ignoreQuarantinedOutputFlush(
+            KeyCounter acceptedOutputs,
+            CallbackInfo callbackInfo) {
+        if (aac$isQuarantined()) {
+            callbackInfo.cancel();
         }
     }
 
@@ -390,7 +497,8 @@ public abstract class ECOCraftingThreadBatchMixin
             List<ItemStack> drops,
             CallbackInfo callbackInfo) {
         // 構造破壊時もBigInteger代表スタックを実アイテムとしてドロップさせない。
-        if (!aac$isBigIntegerBatch()) {
+        if (!aac$isBigIntegerBatch()
+                && !aac$isQuarantined()) {
             return;
         }
         ECOCraftingThread self =
@@ -409,6 +517,13 @@ public abstract class ECOCraftingThreadBatchMixin
     @Inject(method = "serializeNBT", at = @At("RETURN"))
     private void aac$saveBatchSidecar(
             CallbackInfoReturnable<CompoundTag> callbackInfo) {
+        if (aac$isQuarantined()) {
+            callbackInfo.getReturnValue()
+                    .put(
+                            NBT_SIDECAR,
+                            aac$writeQuarantinedSidecar());
+            return;
+        }
         if (!aac$isManagedCraftingTableBatch()) {
             return;
         }
@@ -417,6 +532,12 @@ public abstract class ECOCraftingThreadBatchMixin
         sidecar.putInt(
                 "schema",
                 SIDECAR_SCHEMA);
+        sidecar.putString(
+                NBT_STATE,
+                ((ECOCraftingThread) (Object) this)
+                                .isOutputReady()
+                        ? AacThreadState.OUTPUT_READY.name()
+                        : AacThreadState.RUNNING.name());
         sidecar.putUUID(
                 "transactionId",
                 aac$batchTransactionId);
@@ -443,54 +564,29 @@ public abstract class ECOCraftingThreadBatchMixin
     private void aac$loadBatchSidecar(
             CompoundTag data,
             CallbackInfo callbackInfo) {
-        aac$clearSidecar();
+        aac$resetSidecarForLoad();
         // 通常NeoECO ThreadにはAAC Sidecarがないため、そのまま終了する。
-        if (!data.contains(
-                NBT_SIDECAR,
-                Tag.TAG_COMPOUND)) {
+        if (!data.contains(NBT_SIDECAR)) {
             return;
         }
-        CompoundTag sidecar =
-                data.getCompound(
-                        NBT_SIDECAR);
-        // 未知schemaまたは識別子欠落は所有権を推測せずロードを拒否する。
-        if (sidecar.getInt("schema")
-                        != SIDECAR_SCHEMA
-                || !sidecar.hasUUID(
-                        "transactionId")
-                || !sidecar.hasUUID(
-                        "ownerTransactionId")) {
-            throw new IllegalArgumentException(
-                    "invalid AAC crafting-table batch sidecar");
-        }
-        aac$batchTransactionId =
-                sidecar.getUUID(
-                        "transactionId");
-        aac$ownerTransactionId =
-                sidecar.getUUID(
-                        "ownerTransactionId");
-        aac$payloadDigest =
-                sidecar.getString(
-                        "payloadDigest");
         try {
-            aac$batchMode =
-                    CraftingTableBatchMode.valueOf(
-                            sidecar.getString(
-                                    "mode"));
-        } catch (IllegalArgumentException invalidMode) {
-            throw new IllegalArgumentException(
-                    "invalid AAC crafting-table batch mode",
-                    invalidMode);
-        }
-        aac$exactOutputs =
-                readExactOutputs(
-                        sidecar.get(
-                                "exactOutputs"));
-        // 空識別子または出力なしのSidecarは再開可能な物理仕事ではない。
-        if (aac$payloadDigest.isBlank()
-                || aac$exactOutputs.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "incomplete AAC crafting-table batch sidecar");
+            Tag raw = data.get(NBT_SIDECAR);
+            if (!(raw instanceof CompoundTag sidecar)) {
+                throw new InvalidSidecarException(
+                        AACThreadSidecarFailure.INVALID_STATE,
+                        "sidecar is not a compound tag");
+            }
+            if (AacThreadState.QUARANTINED.name()
+                    .equals(sidecar.getString(NBT_STATE))) {
+                aac$loadPersistedQuarantine(sidecar);
+                return;
+            }
+            aac$loadValidatedSidecar(sidecar);
+        } catch (RuntimeException | LinkageError failure) {
+            Tag raw = data.get(NBT_SIDECAR);
+            aac$quarantine(
+                    raw == null ? new CompoundTag() : raw,
+                    failure);
         }
     }
 
@@ -554,13 +650,20 @@ public abstract class ECOCraftingThreadBatchMixin
     @Unique
     private static Map<AEKey, BigInteger> readExactOutputs(
             Tag raw) {
-        if (!(raw instanceof ListTag list)
-                || (!list.isEmpty()
-                        && list.getElementType()
-                                != Tag.TAG_COMPOUND)
+        if (!(raw instanceof ListTag list)) {
+            throw new InvalidSidecarException(
+                    AACThreadSidecarFailure.INVALID_OUTPUTS,
+                    "invalid AAC exact output sidecar");
+        }
+        if ((!list.isEmpty()
+                && list.getElementType()
+                        != Tag.TAG_COMPOUND)
                 || list.size()
                         > MAXIMUM_EXACT_OUTPUT_KEYS) {
-            throw new IllegalArgumentException(
+            throw new InvalidSidecarException(
+                    list.size() > MAXIMUM_EXACT_OUTPUT_KEYS
+                            ? AACThreadSidecarFailure.OVERSIZED_PAYLOAD
+                            : AACThreadSidecarFailure.INVALID_OUTPUTS,
                     "invalid AAC exact output sidecar");
         }
         Map<AEKey, BigInteger> result =
@@ -571,27 +674,56 @@ public abstract class ECOCraftingThreadBatchMixin
                 index++) {
             CompoundTag entry =
                     list.getCompound(index);
-            AEKey key =
-                    AEKey.fromTagGeneric(
-                            entry.getCompound(
-                                    "key"));
-            BigInteger amount =
-                    PreparedVectorBatchCodec
-                            .readNonNegative(
-                                    entry,
-                                    "amount");
+            AEKey key;
+            try {
+                key =
+                        AEKey.fromTagGeneric(
+                                entry.getCompound(
+                                        "key"));
+            } catch (RuntimeException invalidKey) {
+                throw new InvalidSidecarException(
+                        AACThreadSidecarFailure.INVALID_AE_KEY,
+                        "invalid AAC exact output key",
+                        invalidKey);
+            }
+            BigInteger amount;
+            try {
+                amount =
+                        PreparedVectorBatchCodec
+                                .readNonNegative(
+                                        entry,
+                                        "amount");
+            } catch (RuntimeException invalidAmount) {
+                throw new InvalidSidecarException(
+                        AACThreadSidecarFailure.INVALID_OUTPUTS,
+                        "invalid AAC exact output amount",
+                        invalidAmount);
+            }
             // 不正キー、非正数、API上限超過、重複キーは再開不能として拒否する。
-            if (key == null
-                    || amount.signum() <= 0
+            if (key == null) {
+                throw new InvalidSidecarException(
+                        AACThreadSidecarFailure.INVALID_AE_KEY,
+                        "AAC exact output key is null");
+            }
+            if (amount.signum() <= 0
                     || amount.bitLength()
                             > CraftingTableBatchRequest
-                                    .MAXIMUM_COUNT_BITS
-                    || result.putIfAbsent(
-                                    key,
-                                    amount)
-                            != null) {
-                throw new IllegalArgumentException(
-                        "duplicate or invalid AAC exact output");
+                                    .MAXIMUM_COUNT_BITS) {
+                throw new InvalidSidecarException(
+                        amount.bitLength()
+                                        > CraftingTableBatchRequest
+                                                .MAXIMUM_COUNT_BITS
+                                ? AACThreadSidecarFailure.OVERSIZED_PAYLOAD
+                                : AACThreadSidecarFailure.INVALID_OUTPUTS,
+                        "invalid AAC exact output amount");
+            }
+            if (result.putIfAbsent(
+                            key,
+                            amount)
+                    != null) {
+                throw new InvalidSidecarException(
+                        AACThreadSidecarFailure.DUPLICATE_KEY,
+                        "duplicate AAC exact output key");
             }
         }
         return Map.copyOf(result);
@@ -599,10 +731,241 @@ public abstract class ECOCraftingThreadBatchMixin
 
     @Unique
     private void aac$clearSidecar() {
+        if (aac$isQuarantined()) {
+            return;
+        }
+        aac$resetSidecarForLoad();
+    }
+
+    @Unique
+    private void aac$resetSidecarForLoad() {
         aac$batchTransactionId = null;
         aac$ownerTransactionId = null;
         aac$payloadDigest = "";
         aac$batchMode = null;
         aac$exactOutputs = Map.of();
+        aac$state = AacThreadState.NONE;
+        aac$quarantinedRawSidecar = null;
+        aac$quarantineFailure =
+                AACThreadSidecarFailure.INTERNAL_VALIDATION_ERROR;
+        aac$quarantineSummary = "";
+        aac$quarantineTransactionId = null;
+        aac$quarantineOwnerTransactionId = null;
+    }
+
+    @Unique
+    private void aac$loadValidatedSidecar(
+            CompoundTag sidecar) {
+        if (sidecar.getInt("schema") != SIDECAR_SCHEMA) {
+            throw new InvalidSidecarException(
+                    AACThreadSidecarFailure.UNKNOWN_SCHEMA,
+                    "unknown AAC crafting-table batch sidecar schema");
+        }
+        String storedState =
+                sidecar.getString(NBT_STATE);
+        if (!storedState.isEmpty()
+                && !AacThreadState.RUNNING.name()
+                        .equals(storedState)
+                && !AacThreadState.OUTPUT_READY.name()
+                        .equals(storedState)
+                && !AacThreadState.NONE.name()
+                        .equals(storedState)) {
+            throw new InvalidSidecarException(
+                    AACThreadSidecarFailure.INVALID_STATE,
+                    "invalid AAC crafting-table batch state");
+        }
+        if (!sidecar.hasUUID("transactionId")
+                || !sidecar.hasUUID("ownerTransactionId")) {
+            throw new InvalidSidecarException(
+                    AACThreadSidecarFailure.MISSING_IDENTIFIER,
+                    "AAC crafting-table batch sidecar is missing an owner UUID");
+        }
+        UUID transactionId =
+                sidecar.getUUID("transactionId");
+        UUID ownerTransactionId =
+                sidecar.getUUID("ownerTransactionId");
+        String payloadDigest =
+                sidecar.getString("payloadDigest");
+        if (payloadDigest.isBlank()
+                || payloadDigest.length() > MAXIMUM_FAILURE_SUMMARY_LENGTH) {
+            throw new InvalidSidecarException(
+                    AACThreadSidecarFailure.INVALID_DIGEST,
+                    "AAC crafting-table batch sidecar has an invalid payload digest");
+        }
+        CraftingTableBatchMode batchMode;
+        try {
+            batchMode =
+                    CraftingTableBatchMode.valueOf(
+                            sidecar.getString("mode"));
+        } catch (IllegalArgumentException invalidMode) {
+            throw new InvalidSidecarException(
+                    AACThreadSidecarFailure.INVALID_MODE,
+                    "invalid AAC crafting-table batch mode",
+                    invalidMode);
+        }
+        Map<AEKey, BigInteger> exactOutputs =
+                readExactOutputs(
+                        sidecar.get("exactOutputs"));
+        if (exactOutputs.isEmpty()) {
+            throw new InvalidSidecarException(
+                    AACThreadSidecarFailure.INVALID_OUTPUTS,
+                    "AAC crafting-table batch sidecar has no exact outputs");
+        }
+        // 全項目の検証が終わってから初めて所有権を公開する。
+        aac$batchTransactionId = transactionId;
+        aac$ownerTransactionId = ownerTransactionId;
+        aac$payloadDigest = payloadDigest;
+        aac$batchMode = batchMode;
+        aac$exactOutputs = exactOutputs;
+        aac$state =
+                AacThreadState.OUTPUT_READY.name()
+                        .equals(storedState)
+                ? AacThreadState.OUTPUT_READY
+                : AacThreadState.RUNNING;
+    }
+
+    @Unique
+    private void aac$loadPersistedQuarantine(
+            CompoundTag sidecar) {
+        Tag raw = sidecar.get(NBT_QUARANTINE_RAW);
+        aac$quarantinedRawSidecar =
+                raw == null ? sidecar.copy() : raw.copy();
+        aac$quarantineFailure =
+                aac$readFailureCategory(
+                        sidecar.getString(
+                                NBT_FAILURE_CATEGORY));
+        aac$quarantineSummary =
+                aac$boundedSummary(
+                        sidecar.getString(
+                                NBT_FAILURE_SUMMARY));
+        aac$quarantineTransactionId =
+                aac$optionalUuid(
+                        sidecar,
+                        "transactionId");
+        aac$quarantineOwnerTransactionId =
+                aac$optionalUuid(
+                        sidecar,
+                        "ownerTransactionId");
+        aac$state = AacThreadState.QUARANTINED;
+    }
+
+    @Unique
+    private void aac$quarantine(
+            Tag raw,
+            Throwable failure) {
+        aac$quarantinedRawSidecar =
+                raw.copy();
+        aac$quarantineFailure =
+                failure instanceof InvalidSidecarException invalid
+                        ? invalid.category
+                        : AACThreadSidecarFailure.INTERNAL_VALIDATION_ERROR;
+        aac$quarantineSummary =
+                aac$boundedSummary(
+                        failure.getMessage());
+        if (raw instanceof CompoundTag compound) {
+            aac$quarantineTransactionId =
+                    aac$optionalUuid(
+                            compound,
+                            "transactionId");
+            aac$quarantineOwnerTransactionId =
+                    aac$optionalUuid(
+                            compound,
+                            "ownerTransactionId");
+        } else {
+            aac$quarantineTransactionId = null;
+            aac$quarantineOwnerTransactionId = null;
+        }
+        // 不確定な識別子・出力・代表stackは通常の所有状態へ一切昇格させない。
+        aac$batchTransactionId = null;
+        aac$ownerTransactionId = null;
+        aac$payloadDigest = "";
+        aac$batchMode = null;
+        aac$exactOutputs = Map.of();
+        aac$state = AacThreadState.QUARANTINED;
+    }
+
+    @Unique
+    private CompoundTag aac$writeQuarantinedSidecar() {
+        CompoundTag sidecar =
+                new CompoundTag();
+        sidecar.putInt(
+                "schema",
+                SIDECAR_SCHEMA);
+        sidecar.putString(
+                NBT_STATE,
+                AacThreadState.QUARANTINED.name());
+        sidecar.putString(
+                NBT_FAILURE_CATEGORY,
+                aac$quarantineFailure.name());
+        sidecar.putString(
+                NBT_FAILURE_SUMMARY,
+                aac$quarantineSummary);
+        if (aac$quarantineTransactionId != null) {
+            sidecar.putUUID(
+                    "transactionId",
+                    aac$quarantineTransactionId);
+        }
+        if (aac$quarantineOwnerTransactionId != null) {
+            sidecar.putUUID(
+                    "ownerTransactionId",
+                    aac$quarantineOwnerTransactionId);
+        }
+        if (aac$quarantinedRawSidecar != null) {
+            sidecar.put(
+                    NBT_QUARANTINE_RAW,
+                    aac$quarantinedRawSidecar.copy());
+        }
+        return sidecar;
+    }
+
+    @Unique
+    private static UUID aac$optionalUuid(
+            CompoundTag tag,
+            String key) {
+        return tag.hasUUID(key) ? tag.getUUID(key) : null;
+    }
+
+    @Unique
+    private static AACThreadSidecarFailure aac$readFailureCategory(
+            String value) {
+        try {
+            return AACThreadSidecarFailure.valueOf(value);
+        } catch (IllegalArgumentException invalid) {
+            return AACThreadSidecarFailure.PERSISTED_QUARANTINE;
+        }
+    }
+
+    @Unique
+    private static String aac$boundedSummary(
+            String summary) {
+        String normalized =
+                summary == null || summary.isBlank()
+                        ? "sidecar validation failed"
+                        : summary;
+        return normalized.length() <= MAXIMUM_FAILURE_SUMMARY_LENGTH
+                ? normalized
+                : normalized.substring(
+                        0,
+                        MAXIMUM_FAILURE_SUMMARY_LENGTH);
+    }
+
+    private static final class InvalidSidecarException
+            extends IllegalArgumentException {
+        private final AACThreadSidecarFailure category;
+
+        private InvalidSidecarException(
+                AACThreadSidecarFailure category,
+                String message) {
+            super(message);
+            this.category = category;
+        }
+
+        private InvalidSidecarException(
+                AACThreadSidecarFailure category,
+                String message,
+                Throwable cause) {
+            super(message, cause);
+            this.category = category;
+        }
     }
 }
