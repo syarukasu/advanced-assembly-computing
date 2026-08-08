@@ -37,8 +37,8 @@ jobs:
       - name: Download ACO compile contract
         shell: bash
         run: |
-          mkdir -p ../ae2-crafting-optimizer/build/libs
-          curl -fL -o ../ae2-crafting-optimizer/build/libs/ae2-crafting-optimizer-1.6.0.jar https://github.com/syarukasu/ae2-crafting-optimizer/releases/download/v1.6.0/ae2-crafting-optimizer-1.6.0.jar
+          mkdir -p ../ae2-crafting-optimizer-src/build/libs
+          curl -fL -o ../ae2-crafting-optimizer-src/build/libs/ae2-crafting-optimizer-1.6.1.jar https://github.com/syarukasu/ae2-crafting-optimizer/releases/download/v1.6.1/ae2-crafting-optimizer-1.6.1.jar
 
       - name: Build
         run: |
