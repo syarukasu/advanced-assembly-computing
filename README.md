@@ -24,6 +24,10 @@ one Worker, Thread, Pattern push, or Java loop per craft.
 - Advanced Quantum Engineering `2.3.x` is optional
 - Dedicated server and singleplayer
 
+The persistent branch for this line is `mc/1.21.1`, and its artifact is named
+`aac<version>_1.21.1.jar`. The independent Forge 1.20.1 line is maintained on
+`mc/1.20.1` and uses `aac<version>_1.20.1.jar`.
+
 AE2, Neo ECO, ACO, and AAC are required on both client and server. AQE is not a
 code dependency. AAC's AQE progression recipes load only when AQE is present.
 
@@ -180,10 +184,12 @@ copy Neo ECO textures. AAC BlockItems add the normal enchantment glint.
 
 ## Build
 
-Build ACO `1.6.0` first, then:
+Build AAC directly, or pass a validated ACO contract explicitly when testing
+the optional API boundary:
 
 ```powershell
 .\gradlew.bat clean build --no-daemon
+# Optional: -PacoJar=C:/path/to/aco<version>_<mc>.jar
 ```
 
 The output JAR is written to `build/libs`.
