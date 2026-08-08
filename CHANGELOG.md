@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-08-08
+
+### Changed
+
+- Synchronized the NeoForge artifact version with the Forge 1.20.1 AAC 1.0.4
+  maintenance release.
+- Kept the NeoForge runtime implementation unchanged because the reported
+  Mixin classloader failure is specific to the Forge sidecar implementation.
+
 ## [1.0.3] - 2026-08-08
 
 ### Changed
