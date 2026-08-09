@@ -8,6 +8,7 @@ import com.syaru.advancedassemblycomputing.config.AACConfig;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchThread;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchWorker;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableTerminalReceiptLedger;
+import com.syaru.ae2craftingoptimizer.api.batch.v2.BatchTransactionRecord;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.NativeBatchReceipt;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.NativeBatchReceiptStore;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.PatternBatchV2Api;
@@ -60,6 +61,9 @@ public final class AACIntegrationBootstrap {
     }
 
     private static void requirePublicAcoContract() {
+        requirePublicMethod(
+                BatchTransactionRecord.class,
+                "payloadDigest");
         requirePublicMethod(
                 CraftingTableBatchTarget.class,
                 "aco$acceptCraftingTableBatch",

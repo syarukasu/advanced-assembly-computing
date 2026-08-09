@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.0.6] - 2026-08-09
+
+### Fixed
+
+- Require ACO's public `BatchTransactionRecord.payloadDigest()` contract at
+  integration setup. AAC no longer starts against ACO versions that can only
+  fail later by quarantining every recovery record.
+- Keep the existing native batch, receipt, sidecar, and UELM behavior unchanged
+  after the contract check succeeds.
+
 ## [1.0.5] - 2026-08-09
 
 ### Added
