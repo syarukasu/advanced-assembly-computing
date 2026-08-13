@@ -41,8 +41,9 @@ public final class AdvancedAssemblyComputing {
             AACMultiBlocks.initialize();
             AACIntegrationBootstrap.initialize();
             LOGGER.info(
-                    "Advanced Assembly Computing initialized: physicalThreadsPerWorker={}, maximumExecutionsPerWave={}, progressPerTick={}, powerMultiplier={}",
+                    "Advanced Assembly Computing initialized: physicalThreadsPerWorker={}, minimumLogicalExecutions={}, maximumExecutionsPerWave={}, progressPerTick={}, powerMultiplier={}",
                     AACConfig.physicalThreadsPerWorker(),
+                    AACConfig.minimumLogicalBatchExecutions(),
                     AACConfig.maximumCraftingTableBatchExecutions(),
                     AACConfig.progressPerTick(),
                     AACConfig.powerMultiplier());
