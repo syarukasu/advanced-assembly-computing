@@ -69,6 +69,18 @@ public abstract class ECOCraftingWorkerBatchMixin
                 || !vectorController.isFormed()) {
             return false;
         }
+        // 完了済みTransactionの再送は、物理Threadを再実行せず受理済みとして返す。
+        if (aac$terminalReceipts.contains(
+                request.transactionId(),
+                request.payloadDigest())) {
+            return true;
+        }
+        // 実行前に終端Receipt枠を確保し、完了後の台帳不足を起こさない。
+        if (!aac$terminalReceipts.reserve(
+                request.transactionId(),
+                request.payloadDigest())) {
+            return false;
+        }
 
         int threadCount =
                 craftingThreads.size();
@@ -92,24 +104,35 @@ public abstract class ECOCraftingWorkerBatchMixin
                                 instanceof AACCraftingTableBatchThread batchThread)) {
                     continue;
                 }
+                // 隔離Threadは見かけ上空きでも、管理者確認なしに再利用しない。
+                if (batchThread.aac$isQuarantined()) {
+                    continue;
+                }
                 // 実レシピ検証と冷却材検査を通った最初のThreadだけが所有権を得る。
-                if (batchThread
-                        .aac$acceptCraftingTableBatch(
+                try {
+                    if (batchThread
+                            .aac$acceptCraftingTableBatch(
+                                    request,
+                                    controller)) {
+                        aac$threadsByTransaction.put(
+                                request.transactionId(),
+                                request.payloadDigest(),
+                                thread);
+                        aac$touchCapacity(
                                 request,
-                                controller)) {
-                    aac$threadsByTransaction.put(
+                                "THREAD_ACCEPTED");
+                        nextFreeThreadIndex =
+                                (index + 1)
+                                        % Math.max(
+                                                1,
+                                                craftingThreads.size());
+                        return true;
+                    }
+                } catch (RuntimeException | LinkageError failure) {
+                    aac$terminalReceipts.releaseReservation(
                             request.transactionId(),
-                            request.payloadDigest(),
-                            thread);
-                    aac$touchCapacity(
-                            request,
-                            "THREAD_ACCEPTED");
-                    nextFreeThreadIndex =
-                            (index + 1)
-                                    % Math.max(
-                                            1,
-                                            craftingThreads.size());
-                    return true;
+                            request.payloadDigest());
+                    throw failure;
                 }
             }
         }
@@ -120,6 +143,9 @@ public abstract class ECOCraftingWorkerBatchMixin
          */
         if (craftingThreads.size()
                 >= controller.getThreadCountPerWorker()) {
+            aac$terminalReceipts.releaseReservation(
+                    request.transactionId(),
+                    request.payloadDigest());
             return false;
         }
         ECOCraftingWorkerBlockEntity self =
@@ -130,11 +156,21 @@ public abstract class ECOCraftingWorkerBatchMixin
          * 実レシピ、冷却材、数量式を新Thread自身で先に検証する。
          * 拒否されたThreadを一覧へ追加すると、失敗要求だけで物理Thread上限を埋めてしまう。
          */
-        if (!((AACCraftingTableBatchThread) (Object) thread)
-                .aac$acceptCraftingTableBatch(
-                        request,
-                        controller)) {
-            return false;
+        try {
+            if (!((AACCraftingTableBatchThread) (Object) thread)
+                    .aac$acceptCraftingTableBatch(
+                            request,
+                            controller)) {
+                aac$terminalReceipts.releaseReservation(
+                        request.transactionId(),
+                        request.payloadDigest());
+                return false;
+            }
+        } catch (RuntimeException | LinkageError failure) {
+            aac$terminalReceipts.releaseReservation(
+                    request.transactionId(),
+                    request.payloadDigest());
+            throw failure;
         }
         craftingThreads.add(
                 thread);
@@ -185,6 +221,14 @@ public abstract class ECOCraftingWorkerBatchMixin
                     .aac$craftingTableBatchSnapshot(
                             transactionId,
                             payloadDigest);
+        }
+        Optional<CraftingTableBatchSnapshot> quarantined =
+                aac$findQuarantinedThread(transactionId)
+                        .flatMap(thread ->
+                                thread.aac$quarantinedCraftingTableBatchSnapshot(
+                                        transactionId));
+        if (quarantined.isPresent()) {
+            return quarantined;
         }
         // 実Thread解放後は、同じWorker NBTに残した完了Receiptを返す。
         return aac$terminalReceipts.snapshot(
@@ -295,6 +339,9 @@ public abstract class ECOCraftingWorkerBatchMixin
                         .aac$cancelCraftingTableBatch(
                                 transactionId,
                                 payloadDigest)) {
+            aac$terminalReceipts.releaseReservation(
+                    transactionId,
+                    payloadDigest);
             aac$threadsByTransaction.remove(
                     transactionId);
             aac$wakeAndTouch(
@@ -303,6 +350,20 @@ public abstract class ECOCraftingWorkerBatchMixin
             ((ECOCraftingWorkerBlockEntity) (Object) this)
                     .setChanged();
             return true;
+        }
+        // Thread保存前に停止した場合は、孤立した予約だけを安全に解放する。
+        if (aac$terminalReceipts.isReserved(
+                transactionId,
+                payloadDigest)) {
+            boolean released =
+                    aac$terminalReceipts.releaseReservation(
+                            transactionId,
+                            payloadDigest);
+            if (released) {
+                ((ECOCraftingWorkerBlockEntity) (Object) this)
+                        .setChanged();
+            }
+            return released;
         }
         return false;
     }
@@ -316,7 +377,8 @@ public abstract class ECOCraftingWorkerBatchMixin
         if (!aac$terminalReceipts.isEmpty()) {
             data.put(
                     AAC_TERMINAL_RECEIPTS_NBT,
-                    aac$terminalReceipts.save());
+                    aac$terminalReceipts.save(
+                            registries));
         }
     }
 
@@ -329,7 +391,21 @@ public abstract class ECOCraftingWorkerBatchMixin
         aac$threadsByTransaction.requestRebuild();
         aac$terminalReceipts.load(
                 data.getCompound(
-                        AAC_TERMINAL_RECEIPTS_NBT));
+                        AAC_TERMINAL_RECEIPTS_NBT),
+                registries);
+        // 隔離Threadは位置・index・安全に読めた識別子だけを管理者ログへ出す。
+        for (int index = 0; index < craftingThreads.size(); index++) {
+            ECOCraftingThread thread = craftingThreads.get(index);
+            if (!(thread instanceof AACCraftingTableBatchThread batchThread)
+                    || !batchThread.aac$isQuarantined()) {
+                continue;
+            }
+            com.syaru.advancedassemblycomputing.AdvancedAssemblyComputing.LOGGER.warn(
+                    "AAC quarantined NeoECO Thread: workerPos={}, threadIndex={}, {}",
+                    ((ECOCraftingWorkerBlockEntity) (Object) this).getBlockPos(),
+                    index,
+                    batchThread.aac$quarantineDiagnostic());
+        }
     }
 
     @Unique
@@ -380,6 +456,24 @@ public abstract class ECOCraftingWorkerBatchMixin
                                         instanceof AACCraftingTableBatchThread batchThread
                                 ? Optional.of(batchThread)
                                 : Optional.empty());
+    }
+
+    @Unique
+    private Optional<AACCraftingTableBatchThread>
+            aac$findQuarantinedThread(UUID transactionId) {
+        // 隔離Threadは通常所有権索引へ入れず、診断照会時だけ有限Thread一覧を調べる。
+        for (ECOCraftingThread thread : craftingThreads) {
+            if (!(thread instanceof AACCraftingTableBatchThread batchThread)
+                    || !batchThread.aac$isQuarantined()) {
+                continue;
+            }
+            if (batchThread
+                    .aac$quarantinedCraftingTableBatchSnapshot(transactionId)
+                    .isPresent()) {
+                return Optional.of(batchThread);
+            }
+        }
+        return Optional.empty();
     }
 
     @Unique

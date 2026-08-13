@@ -163,15 +163,15 @@ executions.
 
 ## Optional AQE Dependency
 
-No Java class references AQE. `mods.toml` declares AQE optional.
+No Java class references AQE. `neoforge.mods.toml` declares AQE optional.
 
-The three AQE progression recipes use `forge:conditional` with
-`forge:mod_loaded`, preventing unresolved AQE item IDs when AQE is absent.
+The three AQE progression recipes use `neoforge:conditions` with
+`neoforge:mod_loaded`, preventing unresolved AQE item IDs when AQE is absent.
 
 ## Dedicated Server Safety
 
 Common code references no client-only Minecraft class. AAC uses no Bukkit,
 Paper, Spigot, or Arclight API.
 
-Mixins are required and pinned to Neo ECO `20.3.x`. A missing target must fail
+Mixins are required and pinned to Neo ECO `21.1.1`. A missing target must fail
 startup rather than leave decorative hardware with incorrect accounting.

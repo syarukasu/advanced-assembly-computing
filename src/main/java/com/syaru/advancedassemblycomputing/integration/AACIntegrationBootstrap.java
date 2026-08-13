@@ -5,7 +5,6 @@ import com.syaru.advancedassemblycomputing.config.AACConfig;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableTerminalReceiptLedger;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.PatternBatchV2Api;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.TransactionalPatternBatchAdapter;
-import com.syaru.ae2craftingoptimizer.config.ACOConfig;
 import net.neoforged.fml.ModList;
 
 /** ACO公開APIの版検査とAAC Adapter登録を一元管理する。 */
@@ -34,18 +33,6 @@ public final class AACIntegrationBootstrap {
         requireRegisteredAdapterIdentity(
                 AACCraftingTableBatchAdapter.INSTANCE,
                 registered);
-        /*
-         * Adapter登録だけ成功しても、ACO側Master Switchが無効なら
-         * long係数は使われずNeoECO標準の物理Thread経路へ戻る。
-         */
-        if (AACConfig.nativeCraftingTableBatchEnabled()
-                && !ACOConfig.enableTransactionalBatchingV2()) {
-            AdvancedAssemblyComputing.LOGGER.error(
-                    "AAC native crafting-table batching is enabled, but ACO transaction V2 is disabled. "
-                            + "The long execution coefficient is inactive; enable "
-                            + "experimentalCraftingEngine.enableTransactionalBatchingV2 in "
-                            + "ae2_crafting_optimizer-common.toml.");
-        }
         AdvancedAssemblyComputing.LOGGER.info(
                 "AAC ACO integration initialized: version={}, adapter={}, nativeCraftingTableBatch={}, maximumExecutionsPerWave={}, patternBatchApi={}, receiptSchema={}",
                 loadedVersion(),

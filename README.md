@@ -1,6 +1,6 @@
 # Advanced Assembly Computing
 
-Advanced Assembly Computing (AAC) 1.1.1 is a NeoForge 1.21.1 add-on that connects AE2
+Advanced Assembly Computing (AAC) is a NeoForge 1.21.1 add-on that connects AE2
 Crafting Optimizer's exact crafting-table transactions to Neo ECO AE
 Extension's real crafting multiblock.
 
@@ -20,8 +20,8 @@ one Worker, Thread, Pattern push, or Java loop per craft.
 - Java `21`
 - Applied Energistics 2 `19.2.17`
 - Neo ECO AE Extension `21.1.1`
-- AE2 Crafting Optimizer `1.6.x`
-- Advanced Quantum Engineering `2.3.x` is optional
+- AE2 Crafting Optimizer `1.5.15` through the compatible `1.5.x` contract
+- Advanced Quantum Engineering `2.2.4` through the compatible `2.2.x` line is optional
 - Dedicated server and singleplayer
 
 The persistent branch for this line is `mc/1.21.1`, and its artifact is named
@@ -30,6 +30,23 @@ The persistent branch for this line is `mc/1.21.1`, and its artifact is named
 
 AE2, Neo ECO, ACO, and AAC are required on both client and server. AQE is not a
 code dependency. AAC's AQE progression recipes load only when AQE is present.
+
+## Versioned Contracts
+
+The exact dependency and bytecode contract is recorded in
+`docs/contracts/1.21.1.json`. AAC imports only
+`com.syaru.ae2craftingoptimizer.api.*`; the build rejects ACO implementation
+package imports. Required Neo ECO methods and fields are checked by exact JVM
+descriptors before release.
+
+## Platform Releases
+
+- `mc/1.20.1` uses Java 17 and produces `aac<version>_1.20.1.jar`.
+- `mc/1.21.1` uses Java 21 and produces `aac<version>_1.21.1.jar`.
+
+Release tags are Minecraft-qualified: `aac-v<version>-mc1.20.1` and
+`aac-v<version>-mc1.21.1`. Platform-specific Mixin and persistence code is not
+shared as a compiled binary.
 
 ## Added Blocks
 
@@ -62,6 +79,12 @@ For each accepted crafting-table step:
 
 AAC fires one crafting event for the one real assemble. It never fires events
 once per logical execution.
+
+Acceptance uses a prepare/commit boundary. Recipe proof, exact conversions,
+representative stacks, and terminal-receipt reservation complete before
+coolant or crafting-event side effects. Rejection and pre-commit failure
+release the reservation. A failure after physical commit is quarantined rather
+than retried.
 
 ### Multi-Stage Trees
 
@@ -100,6 +123,23 @@ The Worker records this receipt before releasing the physical Thread. ACO
 credits the receipt once and then explicitly deletes it. A mismatched payload,
 changed output, duplicate transaction, malformed NBT, or over-limit ledger is
 rejected rather than overwritten.
+
+Receipt entries use a versioned state and payload identity. Legacy native
+receipts without a payload digest remain raw and non-authoritative; AAC never
+invents the missing identity during migration.
+
+### Thread sidecar quarantine
+
+An AAC Thread sidecar that fails schema, identifier, mode, AEKey, duplicate-key,
+state, or count validation is retained as `QUARANTINED`. Its raw NBT, bounded
+failure summary, and any safely readable UUID are preserved. The Thread is not
+eligible for allocation, ME recovery, block-break drops, output accounting, or
+normal `clearWork`. Recovery or discard requires an explicit administrator
+decision.
+
+Current sidecars use schema `2`. A complete legacy schema `1` sidecar is
+migrated only when its full identity and payload validate; unknown current
+states and incomplete identities are quarantined.
 
 Cancellation before output completion releases only the representative Thread.
 ACO owns the real input escrow and decides what must be returned.
@@ -191,12 +231,13 @@ copy Neo ECO textures. AAC BlockItems add the normal enchantment glint.
 
 ## Build
 
-Build AAC directly, or pass a validated ACO contract explicitly when testing
-the optional API boundary:
+Build AAC with the dependency directory and released ACO contract used for the
+target platform:
 
 ```powershell
-.\gradlew.bat clean build --no-daemon
-# Optional: -PacoJar=C:/path/to/aco<version>_<mc>.jar
+.\gradlew.bat clean check build --no-daemon `
+  -PaacLocalModsDir=C:/path/to/1.21.1/mods `
+  -PacoJar=C:/path/to/aco1.5.15_1.21.1.jar
 ```
 
 The output JAR is written to `build/libs`.

@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+## [1.0.7] - 2026-08-13
+
+### Added
+
+- Added a configurable `minimumLogicalExecutions` threshold so small normal
+  AE2 jobs return immediately to Neo ECO's ordinary physical-thread path.
+- Added persistent `QUARANTINED` Thread sidecars with bounded diagnostics and
+  raw-NBT preservation for malformed or unknown state.
+- Added descriptor-level Neo ECO 21.1.1 Mixin contract tests and expanded
+  receipt, cancellation, restart, expiry, and corruption regression tests.
+- Added AQE-present and AQE-absent resource-contract gates for the three
+  optional progression recipes and their four referenced AQE item models.
+
+### Changed
+
+- Replaced the Pattern Bus dependency on ACO implementation internals with an
+  AAC-local ledger that uses only ACO's public receipt API.
+- Added a platform-specific 1.21.1 contract manifest and artifact boundary.
+
+### Fixed
+
+- Reserve terminal-receipt capacity before physical side effects and release
+  only uncommitted reservations on rejection or cancellation.
+- Prevent legacy, duplicate, malformed, or explicitly corrupted receipt NBT
+  from being silently normalized into an authoritative ownership record.
+- Prevent quarantined work from being reallocated, recovered, dropped, or
+  acknowledged without an explicit administrator recovery decision.
+
 ## [1.0.6] - 2026-08-10
 
 ### Changed

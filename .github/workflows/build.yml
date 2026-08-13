@@ -39,12 +39,23 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .ci-deps
-          curl -fL -o .ci-deps/aco-contract.jar https://github.com/syarukasu/ae2-crafting-optimizer/releases/download/v1.5.9/aco1.5.9_1.21.1.jar
+          curl -fL -o .ci-deps/aco-contract.jar https://github.com/syarukasu/ae2-crafting-optimizer/releases/download/v1.5.15/aco1.5.15_1.21.1.jar
+          curl -fL -o .ci-deps/aqe2.2.5_1.21.1.jar https://github.com/syarukasu/advanced-quantum-engineering/releases/download/v2.2.5/aqe2.2.5_1.21.1.jar
+
+      - name: Verify AQE-absent resource contract
+        run: |
+          chmod +x gradlew
+          ./gradlew verifyOptionalAqeResourceContract --no-daemon --stacktrace \
+            -PaacLocalModsDir="$GITHUB_WORKSPACE/.ci-mods" \
+            -PacoJar="$GITHUB_WORKSPACE/.ci-deps/aco-contract.jar"
 
       - name: Build
         run: |
           chmod +x gradlew
-          ./gradlew clean build --stacktrace -PaacLocalModsDir="$GITHUB_WORKSPACE/.ci-mods" -PacoJar="$GITHUB_WORKSPACE/.ci-deps/aco-contract.jar"
+          ./gradlew clean build --stacktrace \
+            -PaacLocalModsDir="$GITHUB_WORKSPACE/.ci-mods" \
+            -PacoJar="$GITHUB_WORKSPACE/.ci-deps/aco-contract.jar" \
+            -PaqeJar="$GITHUB_WORKSPACE/.ci-deps/aqe2.2.5_1.21.1.jar"
 
       - name: Verify 1.21.1 artifact boundary
         shell: bash
