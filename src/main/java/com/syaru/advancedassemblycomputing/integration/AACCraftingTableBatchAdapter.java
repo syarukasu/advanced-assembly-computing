@@ -103,7 +103,10 @@ public final class AACCraftingTableBatchAdapter
                         context.pattern());
     }
 
-    @Override
+    /*
+     * ACO 1.5.9のコンパイル契約にも読み込めるよう、ここには@Overrideを付けない。
+     * 新しいACOでは同一シグネチャがV2 Adapterの既定メソッドを上書きする。
+     */
     public long minimumExecutions(PatternBatchContext context) {
         return AACConfig.minimumLogicalBatchExecutions();
     }
