@@ -6,10 +6,14 @@ public final class AACConfig {
     /** NeoECO L9の作業台並列数と同じ、ワーカー一台の物理Thread既定値。 */
     public static final int DEFAULT_PHYSICAL_THREADS_PER_WORKER = 256;
     public static final int DEFAULT_PROGRESS_PER_TICK = 100;
+    /** Neo ECO L9の一Worker並列数と揃えた、論理Batchを使い始める既定実行回数。 */
+    public static final long DEFAULT_MINIMUM_LOGICAL_BATCH_EXECUTIONS = 256L;
     /** 一tick完了時も一物理Threadを100 AE/tに収める既定電力倍率。 */
     public static final int DEFAULT_POWER_MULTIPLIER = 1;
     /** 一ワーカーへ設定できる物理Thread数の防御上限。 */
     private static final int MAX_PHYSICAL_THREADS_PER_WORKER = 65_536;
+    /** 小口注文を誤って長時間待たせない、論理Batch閾値の運用上限。 */
+    private static final long MAX_MINIMUM_LOGICAL_BATCH_EXECUTIONS = 1_048_576L;
     // 誤設定でdouble電力計算を極端に膨らませない運用上限。
     private static final int MAX_POWER_MULTIPLIER = 1_000_000;
 
@@ -21,6 +25,7 @@ public final class AACConfig {
     private static final ModConfigSpec.IntValue POWER_MULTIPLIER;
     private static final ModConfigSpec.BooleanValue REQUIRE_EXACT_PATTERN_OWNERSHIP;
     private static final ModConfigSpec.BooleanValue ENABLE_NATIVE_CRAFTING_TABLE_BATCH;
+    private static final ModConfigSpec.LongValue MINIMUM_LOGICAL_BATCH_EXECUTIONS;
     private static final ModConfigSpec.LongValue MAXIMUM_CRAFTING_TABLE_BATCH_EXECUTIONS;
 
     static {
@@ -71,6 +76,17 @@ public final class AACConfig {
                         "trueではPattern Busが実際に保持するPatternだけを一括Threadへ受理します。",
                         "ACO親Jobは常にAE2が返したProviderからこのBusを選ぶため、既定値trueが安全です。")
                 .define("requireExactPatternOwnership", true);
+        MINIMUM_LOGICAL_BATCH_EXECUTIONS = builder
+                .comment(
+                        "通常AE2 JobでAACの論理一括経路を使い始める、Pattern一種類あたりの実行回数です。",
+                        "これ未満は待機せずNeo ECOの通常物理Thread経路へ戻り、AACの1tick加工と並列数は維持します。",
+                        "1にすると従来どおり、単発クラフトも論理一括経路へ渡します。",
+                        "ACOの正確なBigInteger親Jobはこのlong閾値では制限しません。")
+                .defineInRange(
+                        "minimumLogicalExecutions",
+                        DEFAULT_MINIMUM_LOGICAL_BATCH_EXECUTIONS,
+                        1L,
+                        MAX_MINIMUM_LOGICAL_BATCH_EXECUTIONS);
         MAXIMUM_CRAFTING_TABLE_BATCH_EXECUTIONS = builder
                 .comment(
                         "一つのAAC Worker仕事が所有できる論理クラフト回数です。",
@@ -114,6 +130,14 @@ public final class AACConfig {
     public static boolean nativeCraftingTableBatchEnabled() {
         return vectorCraftingEnabled()
                 && ENABLE_NATIVE_CRAFTING_TABLE_BATCH.get();
+    }
+
+    public static long minimumLogicalBatchExecutions() {
+        return Math.min(
+                MAX_MINIMUM_LOGICAL_BATCH_EXECUTIONS,
+                Math.max(
+                        1L,
+                        MINIMUM_LOGICAL_BATCH_EXECUTIONS.get()));
     }
 
     public static long maximumCraftingTableBatchExecutions() {
