@@ -13,9 +13,10 @@
       "modId": "ae2"
     }
   },
-  "neoEco": ["20.3.0"],
+  "neoEco": ["20.4.0"],
   "ldlib": ["1.0.50"],
   "aco": {
+    "version": "1.5.15",
     "patternBatchApi": 4,
     "publicRecordView": true,
     "exactCountBits": 1048576,
@@ -28,7 +29,9 @@
     "clusterCalculator": "cn.dancingsnow.neoecoae.multiblock.calculator.NECraftingClusterCalculator"
   },
   "descriptors": {
-    "threadStartWork": "(Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/UUID;I)V",
+    "threadStartBatchWork": "(Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/UUID;IIIZ)V",
+    "threadPrepareCraftingCooling": "(Lcn/dancingsnow/neoecoae/blocks/entity/crafting/ECOCraftingSystemBlockEntity;I)I",
+    "threadTick": "(IIIZZ)Lappeng/api/networking/ticking/TickRateModulation;",
     "threadClearWork": "()V",
     "threadSerialize": "()Lnet/minecraft/nbt/CompoundTag;",
     "threadDeserialize": "(Lnet/minecraft/nbt/CompoundTag;)V",

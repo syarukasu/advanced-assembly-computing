@@ -41,16 +41,26 @@ jobs:
           set -euo pipefail
           mkdir -p .ci-mods .ci-deps
           curl -fL -o .ci-mods/appliedenergistics2-forge-15.4.10.jar https://edge.forgecdn.net/files/7148/487/appliedenergistics2-forge-15.4.10.jar
-          curl -fL -o .ci-mods/neoecoae-20.3.0.jar https://mediafilez.forgecdn.net/files/8438/819/neoecoae-20.3.0.jar
+          curl -fL -o .ci-mods/neoecoae-20.4.0.jar https://github.com/DancingSnow0517/NeoECOAEExtension/releases/download/20.4.0/neoecoae-20.4.0.jar
           curl -fL -o .ci-mods/ldlib-forge-1.20.1-1.0.50.jar https://edge.forgecdn.net/files/7809/449/ldlib-forge-1.20.1-1.0.50.jar
-          curl -fL -o .ci-deps/aco1.5.8_1.20.1.jar https://github.com/syarukasu/ae2-crafting-optimizer/releases/download/v1.5.8/aco1.5.8_1.20.1.jar
+          curl -fL -o .ci-deps/aco1.5.15_1.20.1.jar https://github.com/syarukasu/ae2-crafting-optimizer/releases/download/v1.5.15/aco1.5.15_1.20.1.jar
+          curl -fL -o .ci-deps/aqe2.2.5_1.20.1.jar https://github.com/syarukasu/advanced-quantum-engineering/releases/download/v2.2.5/aqe2.2.5_1.20.1.jar
+
+      - name: Verify AQE-absent resource contract
+        run: |
+          chmod +x gradlew
+          ./gradlew verifyOptionalAqeResourceContract --no-daemon --stacktrace \
+            -PaacLocalModsDir="$GITHUB_WORKSPACE/.ci-mods" \
+            -PacoJar="$GITHUB_WORKSPACE/.ci-deps/aco1.5.15_1.20.1.jar" \
+            -Pae2Variant="${{ matrix.ae2_variant }}"
 
       - name: Build and verify
         run: |
           chmod +x gradlew
           ./gradlew clean check --no-daemon --stacktrace \
             -PaacLocalModsDir="$GITHUB_WORKSPACE/.ci-mods" \
-            -PacoJar="$GITHUB_WORKSPACE/.ci-deps/aco1.5.8_1.20.1.jar" \
+            -PacoJar="$GITHUB_WORKSPACE/.ci-deps/aco1.5.15_1.20.1.jar" \
+            -PaqeJar="$GITHUB_WORKSPACE/.ci-deps/aqe2.2.5_1.20.1.jar" \
             -Pae2Variant="${{ matrix.ae2_variant }}"
 
       - name: Upload Minecraft-qualified artifact

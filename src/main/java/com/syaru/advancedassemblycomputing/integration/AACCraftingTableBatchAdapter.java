@@ -17,6 +17,7 @@ import com.syaru.ae2craftingoptimizer.api.batch.v2.BatchRecoveryResult;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.NativeBatchReceipt;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.NativeBatchReceiptStore;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.PatternBatchCommit;
+import com.syaru.ae2craftingoptimizer.api.batch.v2.PatternBatchIdentity;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.PreparedPatternBatch;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.TransactionalPatternBatchAdapter;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchMode;
@@ -180,7 +181,7 @@ public final class AACCraftingTableBatchAdapter
             PreparedPatternBatch prepared) {
         Target target = requireTarget(context);
         String patternFingerprint =
-                AACNativePatternBatchSupport.fingerprint(context);
+                PatternBatchIdentity.canonicalFingerprint(context);
         String payloadDigest =
                 BatchPayloadFingerprint.of(prepared);
         NativeBatchReceipt existing =

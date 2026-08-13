@@ -1,6 +1,7 @@
 package com.syaru.advancedassemblycomputing.execution;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,6 +14,28 @@ import net.minecraft.nbt.TagParser;
 import org.junit.jupiter.api.Test;
 
 class AACThreadSidecarMigrationTest {
+    @Test
+    void keepsCurrentRunningState() throws Exception {
+        CompoundTag sidecar = fixture("current-running.snbt");
+
+        AACThreadSidecarMigration.StateResolution result =
+                resolve(sidecar, true, false);
+
+        assertEquals(AacThreadState.RUNNING, result.state());
+        assertFalse(result.migrated());
+    }
+
+    @Test
+    void keepsCurrentOutputReadyState() throws Exception {
+        CompoundTag sidecar = fixture("current-output-ready.snbt");
+
+        AACThreadSidecarMigration.StateResolution result =
+                resolve(sidecar, true, true);
+
+        assertEquals(AacThreadState.OUTPUT_READY, result.state());
+        assertFalse(result.migrated());
+    }
+
     @Test
     void migratesAac101SidecarWithoutState() throws Exception {
         CompoundTag sidecar = fixture("legacy-aac-1.0.1.snbt");
@@ -84,6 +107,37 @@ class AACThreadSidecarMigrationTest {
     }
 
     @Test
+    void rejectsUnknownState() throws Exception {
+        CompoundTag sidecar = fixture("malformed-unknown-state.snbt");
+
+        InvalidSidecarException failure =
+                assertThrows(
+                        InvalidSidecarException.class,
+                        () -> resolve(sidecar, true, false));
+
+        assertEquals(
+                AACThreadSidecarFailure.INVALID_STATE,
+                failure.category());
+    }
+
+    @Test
+    void requiresDedicatedLoaderForPersistedQuarantine() throws Exception {
+        CompoundTag sidecar = fixture("persisted-quarantine.snbt");
+
+        InvalidSidecarException failure =
+                assertThrows(
+                        InvalidSidecarException.class,
+                        () -> resolve(sidecar, true, false));
+
+        assertEquals(
+                AACThreadSidecarFailure.INVALID_STATE,
+                failure.category());
+        assertEquals(
+                99,
+                sidecar.getCompound("rawSidecar").getInt("schema"));
+    }
+
+    @Test
     void rejectsUnknownSchemaFromFixture() throws Exception {
         CompoundTag sidecar = fixture("malformed-unknown-schema.snbt");
 
@@ -132,5 +186,17 @@ class AACThreadSidecarMigrationTest {
                     new String(input.readAllBytes(), StandardCharsets.UTF_8);
             return TagParser.parseTag(snbt);
         }
+    }
+
+    private static AACThreadSidecarMigration.StateResolution resolve(
+            CompoundTag sidecar,
+            boolean hasActivePayload,
+            boolean outputReady) {
+        return AACThreadSidecarMigration.resolve(
+                sidecar.getInt("schema"),
+                sidecar.contains("state", Tag.TAG_STRING),
+                sidecar.getString("state"),
+                hasActivePayload,
+                outputReady);
     }
 }

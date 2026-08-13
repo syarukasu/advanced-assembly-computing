@@ -25,7 +25,7 @@ public final class AACMultiBlocks {
         }
 
         BlockState casing = NEBlocks.CRAFTING_CASING.getDefaultState();
-        // 座標・反復方向・最大長はNeo ECO 20.3.0のL9設計図をそのまま保つ。
+        // 座標・反復方向・最大長はNeo ECO 20.4.0のL9設計図をそのまま保つ。
         craftingSystem = MultiBlockDefinition.builder(
                         AACBlocks.VECTOR_CRAFTING_CONTROLLER.get().builtInRegistryHolder())
                 .setBlock(pos(1, 1, 0), AACBlocks.VECTOR_CRAFTING_CONTROLLER.get().defaultBlockState())

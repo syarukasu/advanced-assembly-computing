@@ -1,7 +1,7 @@
 Advanced Assembly Computing
 Copyright (C) 2026 syaru
 
-This project integrates with Neo ECO AE 20.3.0 and subclasses its public
+This project integrates with Neo ECO AE 20.4.0 and subclasses its public
 crafting subsystem classes. Neo ECO AE is licensed under GNU GPL version 3.
 
 No Neo ECO texture or model file is copied into this project. Resource JSON
