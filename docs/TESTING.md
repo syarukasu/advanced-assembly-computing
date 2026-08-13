@@ -17,10 +17,39 @@ Automated tests cover:
 - physical capacity arithmetic;
 - durable terminal receipt identity;
 - idempotent receipt replay and explicit forget;
-- refusal to overwrite one transaction with another payload or output.
+- pre-commit receipt reservation and exact cancellation release;
+- native Pattern Bus receipt save/reload, terminal expiry, pending ownership,
+  legacy-schema isolation, and raw corrupted-payload preservation;
+- refusal to overwrite one transaction with another payload or output;
 - nine identical input slots at `Long.MAX_VALUE` each without merged-input
   overflow rejection;
-- a coefficient-nine input slot being limited to `Long.MAX_VALUE / 9`.
+- a coefficient-nine input slot being limited to `Long.MAX_VALUE / 9`;
+- exact Neo ECO `21.1.1` Thread, Worker, Pattern Bus, persistence, and structure
+  method/field descriptors;
+- the public ACO API boundary without imports from implementation packages;
+- schema 1 AAC sidecar migration, current `RUNNING` and `OUTPUT_READY` states,
+  persistent malformed-sidecar quarantine, unknown-schema, missing-UUID,
+  duplicate-key, and oversized-count fixtures.
+- AQE-absent JSON/NeoForge-condition validation and optional AQE artifact
+  metadata, Minecraft-version, and referenced-item-model validation.
+
+The descriptor tests use the exact Neo ECO dependency on the test classpath.
+`verifyAcoPublicApiBoundary` rejects direct ACO implementation imports.
+`verifyAacArtifactBoundary` inspects the built JAR's Minecraft-qualified name,
+NeoForge-only metadata, and Java 21 class-file version. These checks do not
+start Minecraft.
+
+The optional AQE resource contract can also be run explicitly:
+
+```powershell
+.\gradlew.bat verifyOptionalAqeResourceContract --no-daemon
+.\gradlew.bat verifyOptionalAqeResourceContract --no-daemon `
+  -PaqeJar=C:\absolute\path\to\aqe<version>_1.21.1.jar
+```
+
+The first command validates the AQE-absent conditional-resource boundary. The
+second additionally rejects a wrong-platform AQE JAR or missing recipe material
+models. This is a static resource-contract test, not a Minecraft startup test.
 
 ## Live Registration
 
@@ -63,6 +92,10 @@ Use ACO's twenty-stage deterministic test chain.
    parallel.
 5. Confirm the final result comes from escrow rather than direct tree output.
 
+Also test a mixed tree where a Neo ECO crafting-table child feeds a processing
+Pattern. The processing step must remain on its original machine path; its
+parent crafting-table step may start only after the machine output is credited.
+
 ## Receipt Recovery
 
 Stop or unload at:
@@ -87,6 +120,8 @@ index and subsequent polling does not scan the full Worker/Thread lists.
 3. Confirm ACO returns the real reserved input escrow.
 4. Cancel after output readiness and confirm output is not converted back into
    original input.
+5. Restart or unload after reservation but before Thread persistence, cancel,
+   and confirm the orphan reservation is released exactly once.
 
 ## Normal AE2 Job
 
@@ -118,3 +153,8 @@ Gradle cannot prove:
 - production TPS.
 
 These require live testing with identical server/client JARs.
+
+For performance claims, capture a baseline and AAC run with the same world,
+recipe tree, requested quantity, loaded chunks, and player count. Record TPS,
+MSPT, allocation rate, GC pauses, planning time, physical stages completed,
+and exact receipt counts. A successful build is not TPS evidence.

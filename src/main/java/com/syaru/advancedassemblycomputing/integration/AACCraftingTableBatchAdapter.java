@@ -6,6 +6,7 @@ import cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingPatternBusBlock
 import com.syaru.advancedassemblycomputing.AdvancedAssemblyComputing;
 import com.syaru.advancedassemblycomputing.blockentity.VectorCraftingControllerBlockEntity;
 import com.syaru.advancedassemblycomputing.config.AACConfig;
+import com.syaru.advancedassemblycomputing.execution.AACNativePatternBatchSupport;
 import com.syaru.advancedassemblycomputing.util.LongBatchStackMath;
 import com.syaru.ae2craftingoptimizer.api.batch.PatternBatchBudget;
 import com.syaru.ae2craftingoptimizer.api.batch.PatternBatchContext;
@@ -17,14 +18,14 @@ import com.syaru.ae2craftingoptimizer.api.batch.v2.BatchRecoveryResult;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.NativeBatchReceipt;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.NativeBatchReceiptStore;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.PatternBatchCommit;
+import com.syaru.ae2craftingoptimizer.api.batch.v2.PatternBatchIdentity;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.PreparedPatternBatch;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.TransactionalPatternBatchAdapter;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchMode;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchRequest;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchTarget;
 import com.syaru.ae2craftingoptimizer.api.vector.ExactStack;
-import com.syaru.ae2craftingoptimizer.batch.NativePatternBatchSupport;
-import com.syaru.ae2craftingoptimizer.transaction.BatchTransactionRecord;
+import com.syaru.ae2craftingoptimizer.api.batch.v2.BatchTransactionRecord;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -144,13 +145,13 @@ public final class AACCraftingTableBatchAdapter
                     "AAC crafting-table batch has no safe execution capacity");
         }
 
-        var scaledInputs = NativePatternBatchSupport.scaleInputs(
+        var scaledInputs = AACNativePatternBatchSupport.scaleInputs(
                 context,
                 executions);
         List<GenericStack> aggregateInputs =
-                NativePatternBatchSupport.flatten(scaledInputs);
+                AACNativePatternBatchSupport.flatten(scaledInputs);
         List<GenericStack> expectedOutputs =
-                NativePatternBatchSupport.scaleAllExpectedOutputs(
+                AACNativePatternBatchSupport.scaleAllExpectedOutputs(
                         context,
                         executions);
         if (!LongBatchStackMath.totalsFitLong(expectedOutputs)) {
@@ -180,7 +181,7 @@ public final class AACCraftingTableBatchAdapter
             PreparedPatternBatch prepared) {
         Target target = requireTarget(context);
         String patternFingerprint =
-                NativePatternBatchSupport.fingerprint(context);
+                PatternBatchIdentity.canonicalFingerprint(context);
         String payloadDigest =
                 BatchPayloadFingerprint.of(prepared);
         NativeBatchReceipt existing =

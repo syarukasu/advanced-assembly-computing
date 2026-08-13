@@ -75,27 +75,42 @@ dependencies {
     compileOnly 'com.tterrag.registrate:Registrate:MC1.21.1-1.4.8'
 
     def acoJarProperty = findProperty('acoJar')
-    if (acoJarProperty != null) {
-        File acoJar = file(acoJarProperty)
-        if (!acoJar.isFile()) {
-            throw new GradleException("ACO contract JAR is missing: ${acoJar}")
-        }
-        def acoArchive = new java.util.jar.JarFile(acoJar)
-        try {
-            def metadataEntry = acoArchive.getJarEntry('META-INF/neoforge.mods.toml')
-            if (metadataEntry == null) {
-                throw new GradleException("ACO contract JAR is not a NeoForge 1.21.1 artifact: ${acoJar}")
-            }
-            def metadata = acoArchive.getInputStream(metadataEntry).getText('UTF-8')
-            if (!metadata.contains('modId = "ae2_crafting_optimizer"')) {
-                throw new GradleException("ACO contract JAR has unexpected mod metadata: ${acoJar}")
-            }
-        } finally {
-            acoArchive.close()
-        }
-        compileOnly files(acoJar)
-        testImplementation files(acoJar)
+    if (acoJarProperty == null) {
+        throw new GradleException(
+                'AAC 1.21.1 requires -PacoJar=/absolute/path/to/aco<version>_1.21.1.jar')
     }
+    File acoJar = file(acoJarProperty)
+    if (!acoJar.isFile()) {
+        throw new GradleException("ACO contract JAR is missing: ${acoJar}")
+    }
+    def acoStem = acoJar.name.endsWith('.jar') ? acoJar.name[0..-5] : acoJar.name
+    def acoVersionMatcher = (acoStem =~ /(?:-|^aco)(\d+\.\d+\.\d+)(?:_|$)/)
+    if (!acoVersionMatcher.find()) {
+        throw new GradleException("ACO contract JAR must use a versioned filename: ${acoJar}")
+    }
+    def acoVersion = acoVersionMatcher.group(1)
+    def acoArchive = new java.util.jar.JarFile(acoJar)
+    try {
+        def metadataEntry = acoArchive.getJarEntry('META-INF/neoforge.mods.toml')
+        if (metadataEntry == null) {
+            throw new GradleException("ACO contract JAR is not a NeoForge 1.21.1 artifact: ${acoJar}")
+        }
+        def metadata = acoArchive.getInputStream(metadataEntry).getText('UTF-8')
+        def metadataVersionMatcher =
+                metadata =~ /(?m)^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"\s*$/
+        def hasMinecraftDependency =
+                (metadata =~ /(?s)modId\s*=\s*"minecraft".*?versionRange\s*=\s*"\[1\.21\.1,1\.21\.2\)"/).find()
+        if (!metadata.contains('modId = "ae2_crafting_optimizer"')
+                || !metadataVersionMatcher.find()
+                || metadataVersionMatcher.group(1) != acoVersion
+                || !hasMinecraftDependency) {
+            throw new GradleException("ACO contract JAR has unexpected mod metadata: ${acoJar}")
+        }
+    } finally {
+        acoArchive.close()
+    }
+    compileOnly files(acoJar)
+    testImplementation files(acoJar)
 
     annotationProcessor 'org.spongepowered:mixin:0.8.7:processor'
 
@@ -110,6 +125,114 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.named('test', Test).configure {
     useJUnitPlatform()
+}
+
+tasks.register('verifyAcoPublicApiBoundary') {
+    description = 'Reject direct AAC imports from ACO implementation packages.'
+    group = 'verification'
+    doLast {
+        def forbidden = ~/import\s+com\.syaru\.ae2craftingoptimizer\.(?!api\.)/
+        // AACは公開APIだけを利用し、ACO内部実装へのコンパイル時依存を持たない。
+        fileTree('src/main/java').matching { include '**/*.java' }.files.each { source ->
+            def text = source.getText('UTF-8')
+            if (text =~ forbidden) {
+                throw new GradleException("AAC source imports a non-public ACO package: ${source}")
+            }
+        }
+    }
+}
+
+tasks.register('verifyOptionalAqeResourceContract') {
+    description = 'Verify AQE-optional NeoForge recipes, or also validate an explicitly supplied AQE artifact.'
+    group = 'verification'
+    doLast {
+        def expectedRecipeNames = [
+                'vector_crafting_controller.json',
+                'vector_crafting_parallel_core.json',
+                'vector_crafting_worker.json'
+        ] as Set
+        def recipeDirectory = file(
+                'src/main/resources/data/advanced_assembly_computing/recipe')
+        def expectedRecipes = expectedRecipeNames.collect {
+            new File(recipeDirectory, it)
+        }
+        def parser = new groovy.json.JsonSlurper()
+
+        // AQE非導入時もresource reloadでJSON構文に失敗しないよう全配布JSONを解析する。
+        fileTree('src/main/resources').matching { include '**/*.json' }.files.each { resource ->
+            parser.parseText(resource.getText('UTF-8'))
+        }
+
+        // AQE item IDを含むrecipeは三つのNeoForge条件付きrecipeだけに限定する。
+        def aqeReferences = fileTree('src/main/resources').matching {
+            include '**/*.json'
+        }.files.findAll { resource ->
+            resource.getText('UTF-8').contains('advanced_quantum_engineering:')
+        } as Set
+        if (aqeReferences != expectedRecipes as Set) {
+            throw new GradleException(
+                    "AQE references escaped the optional recipe boundary: ${aqeReferences}")
+        }
+
+        // 各AQE recipeがNeoForgeのmod_loaded条件を一件だけ持つことを検証する。
+        expectedRecipes.each { recipe ->
+            def root = parser.parseText(recipe.getText('UTF-8'))
+            def conditions = root['neoforge:conditions']
+            if (!(conditions instanceof List)
+                    || conditions.size() != 1
+                    || conditions[0].type != 'neoforge:mod_loaded'
+                    || conditions[0].modid != 'advanced_quantum_engineering'
+                    || root.type != 'minecraft:crafting_shaped') {
+                throw new GradleException(
+                        "AQE recipe is not safely NeoForge-conditional: ${recipe}")
+            }
+        }
+
+        def aqeJarProperty = findProperty('aqeJar')
+        // -PaqeJar未指定はAQEなしの契約検査として正常終了する。
+        if (aqeJarProperty == null) {
+            logger.lifecycle('AAC optional AQE resources verified without AQE')
+            return
+        }
+
+        File aqeJar = file(aqeJarProperty)
+        if (!aqeJar.isFile()) {
+            throw new GradleException("Optional AQE artifact is missing: ${aqeJar}")
+        }
+        def requiredModels = [
+                'assets/advanced_quantum_engineering/models/item/big_integer_quantum_core.json',
+                'assets/advanced_quantum_engineering/models/item/modified_quantum_accelerator.json',
+                'assets/advanced_quantum_engineering/models/item/modified_quantum_multi_threader.json',
+                'assets/advanced_quantum_engineering/models/item/modified_quantum_storage.json'
+        ] as Set
+        def archive = new java.util.jar.JarFile(aqeJar)
+        try {
+            def metadataEntry = archive.getJarEntry('META-INF/neoforge.mods.toml')
+            if (metadataEntry == null
+                    || archive.getJarEntry('META-INF/mods.toml') != null) {
+                throw new GradleException(
+                        "AQE artifact is not NeoForge 1.21.1: ${aqeJar}")
+            }
+            def metadata = archive.getInputStream(metadataEntry).getText('UTF-8')
+            if (!metadata.contains('modId = "advanced_quantum_engineering"')
+                    || !metadata.contains('versionRange = "[1.21.1,1.21.2)"')) {
+                throw new GradleException(
+                        "AQE artifact has unexpected Minecraft metadata: ${aqeJar}")
+            }
+            def entries = archive.entries().collect { it.name } as Set
+            if (!entries.containsAll(requiredModels)) {
+                throw new GradleException(
+                        "AQE artifact is missing AAC recipe materials: ${requiredModels - entries}")
+            }
+        } finally {
+            archive.close()
+        }
+        logger.lifecycle("AAC optional AQE resources verified with ${aqeJar.name}")
+    }
+}
+
+tasks.named('compileJava').configure {
+    dependsOn tasks.named('verifyAcoPublicApiBoundary')
 }
 
 processResources {
@@ -138,4 +261,78 @@ jar {
                 'MixinConfigs'            : 'advanced_assembly_computing.mixins.json'
         ])
     }
+}
+
+tasks.register('verifyAacArtifactBoundary') {
+    description = 'Verify the NeoForge 1.21.1 artifact name, metadata, and bytecode boundary.'
+    group = 'verification'
+    dependsOn tasks.named('jar')
+    doLast {
+        def expected = file("$buildDir/libs/aac${mod_version}_${minecraft_version}.jar")
+        if (!expected.isFile()) {
+            throw new GradleException("Expected AAC artifact is missing: ${expected}")
+        }
+        if (expected.name != "aac${mod_version}_1.21.1.jar") {
+            throw new GradleException("Artifact is not Minecraft-qualified: ${expected.name}")
+        }
+
+        def classVersions = [] as Set
+        def entries = []
+        def archive = new java.util.jar.JarFile(expected)
+        try {
+            // 全class headerと配布物のプラットフォーム境界を一度だけ検査する。
+            archive.entries().each { entry ->
+                entries << entry.name
+                if (!entry.name.endsWith('.class')) {
+                    return
+                }
+                def bytes = new byte[8]
+                def input = archive.getInputStream(entry)
+                try {
+                    if (input.read(bytes) != 8
+                            || bytes[0] != (byte) 0xCA
+                            || bytes[1] != (byte) 0xFE
+                            || bytes[2] != (byte) 0xBA
+                            || bytes[3] != (byte) 0xBE) {
+                        throw new GradleException("Invalid class header in ${entry.name}")
+                    }
+                    classVersions << ((bytes[6] & 0xFF) << 8 | (bytes[7] & 0xFF))
+                } finally {
+                    input.close()
+                }
+            }
+            def metadataEntry = archive.getJarEntry('META-INF/neoforge.mods.toml')
+            if (metadataEntry == null || archive.getJarEntry('META-INF/mods.toml') != null) {
+                throw new GradleException(
+                        'NeoForge artifact must contain only META-INF/neoforge.mods.toml')
+            }
+            def metadata = archive.getInputStream(metadataEntry).getText('UTF-8')
+            if (!metadata.contains('modId = "advanced_assembly_computing"')
+                    || !metadata.contains('versionRange = "[1.21.1,1.21.2)"')
+                    || metadata.contains('1.20.1')) {
+                throw new GradleException('AAC artifact contains unexpected NeoForge metadata')
+            }
+        } finally {
+            archive.close()
+        }
+
+        def forbiddenEntries = entries.findAll {
+            it.startsWith('net/minecraftforge/')
+                    || it == 'META-INF/mods.toml'
+                    || it.contains('1.20.1')
+        }
+        if (!forbiddenEntries.isEmpty()) {
+            throw new GradleException(
+                    "AAC 1.21.1 artifact contains Forge 1.20.1 entries: ${forbiddenEntries}")
+        }
+        if (classVersions != [65] as Set) {
+            throw new GradleException(
+                    "AAC 1.21.1 artifact must use Java 21 bytecode, got ${classVersions}")
+        }
+    }
+}
+
+tasks.named('check').configure {
+    dependsOn tasks.named('verifyAacArtifactBoundary')
+    dependsOn tasks.named('verifyOptionalAqeResourceContract')
 }

@@ -14,6 +14,7 @@ import java.util.UUID;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -122,6 +123,106 @@ final class AACCraftingTableTerminalReceiptLedgerTest {
                         Map.of(
                                 output,
                                 BigInteger.TWO)));
+    }
+
+    @Test
+    void reservesReceiptCapacityBeforePhysicalCommit() {
+        AACCraftingTableTerminalReceiptLedger ledger =
+                new AACCraftingTableTerminalReceiptLedger();
+        UUID transactionId =
+                UUID.randomUUID();
+        AEKey output =
+                new TestKey(
+                        "output");
+
+        assertTrue(
+                ledger.reserve(
+                        transactionId,
+                        "aco:reserved"));
+        // 異なるPayloadが同じ枠を奪うことはできない。
+        assertFalse(
+                ledger.reserve(
+                        transactionId,
+                        "aco:other"));
+        // 予約済み枠は容量上限到達後でも完了Receiptへ昇格できる。
+        assertTrue(
+                ledger.record(
+                        transactionId,
+                        "aco:reserved",
+                        Map.of(
+                                output,
+                                BigInteger.ONE)));
+        assertTrue(
+                ledger.contains(
+                        transactionId,
+                        "aco:reserved"));
+    }
+
+    @Test
+    void releasesUncommittedReceiptReservation() {
+        AACCraftingTableTerminalReceiptLedger ledger =
+                new AACCraftingTableTerminalReceiptLedger();
+        UUID transactionId =
+                UUID.randomUUID();
+
+        assertTrue(
+                ledger.reserve(
+                        transactionId,
+                        "aco:reserved"));
+        assertFalse(
+                ledger.releaseReservation(
+                        transactionId,
+                        "aco:other"));
+        assertTrue(
+                ledger.releaseReservation(
+                        transactionId,
+                        "aco:reserved"));
+        assertTrue(
+                ledger.isEmpty());
+    }
+
+    @Test
+    void quarantinesAnUnidentifiableEntryWithoutDroppingTheLedger() {
+        AACCraftingTableTerminalReceiptLedger ledger =
+                new AACCraftingTableTerminalReceiptLedger();
+        CompoundTag owner =
+                new CompoundTag();
+        owner.putInt(
+                "schema",
+                AACCraftingTableTerminalReceiptLedger
+                        .schemaVersion());
+        ListTag entries =
+                new ListTag();
+        CompoundTag malformed =
+                new CompoundTag();
+        malformed.putString(
+                "state",
+                "ACKNOWLEDGED");
+        entries.add(
+                malformed);
+        owner.put(
+                "entries",
+                entries);
+
+        ledger.load(
+                owner,
+                null);
+
+        assertTrue(
+                ledger.isHealthy());
+        assertEquals(
+                1,
+                ledger.quarantinedCount());
+        assertTrue(
+                ledger.hasIdentityUncertainty());
+        assertFalse(
+                ledger.reserve(
+                        UUID.randomUUID(),
+                        "aco:new"));
+        assertTrue(
+                ledger.save(null)
+                        .contains(
+                                "quarantinedEntries"));
     }
 
     /** Minecraft Registryを起動せず、終端Receiptの所有権だけを試験する最小AEKey。 */

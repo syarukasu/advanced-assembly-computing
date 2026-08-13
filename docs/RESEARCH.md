@@ -2,11 +2,10 @@
 
 ## Investigated Artifacts
 
-- Applied Energistics 2 `15.4.10`
-- Neo ECO AE Extension `20.3.0`
-- Neo ECO source commit `d0c7a1d`
-- AE2 Crafting Optimizer `1.5.4`
-- Advanced Quantum Engineering `2.1.2` through `2.2.x`
+- Applied Energistics 2 `19.2.17`
+- Neo ECO AE Extension `21.1.1`
+- AE2 Crafting Optimizer `1.5.15`
+- Advanced Quantum Engineering `2.2.4` through `2.2.x`
 - InsaneAE Quantum CPU source architecture
 
 No class name, method, Registry ID, or model path was selected from a

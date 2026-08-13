@@ -5,6 +5,7 @@ import cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingWorkerBlockEnti
 import com.syaru.advancedassemblycomputing.blockentity.VectorCraftingControllerBlockEntity;
 import com.syaru.advancedassemblycomputing.config.AACConfig;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchWorker;
+import com.syaru.advancedassemblycomputing.execution.AACNativeBatchReceiptLedger;
 import com.syaru.advancedassemblycomputing.execution.AACPatternBusPersistentState;
 import com.syaru.advancedassemblycomputing.execution.AACRevisionIndex;
 import com.syaru.ae2craftingoptimizer.api.batch.v2.NativeBatchReceipt;
@@ -13,7 +14,6 @@ import com.syaru.ae2craftingoptimizer.api.batch.v2.ProviderOwnedPatternBatchTarg
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchRequest;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchSnapshot;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchTarget;
-import com.syaru.ae2craftingoptimizer.batch.NativeBatchReceiptLedger;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -40,8 +40,8 @@ public abstract class ECOCraftingPatternBusBatchMixin
     private int nextWorkerIndex;
 
     @Unique
-    private final NativeBatchReceiptLedger aac$batchReceipts =
-            new NativeBatchReceiptLedger();
+    private final AACNativeBatchReceiptLedger aac$batchReceipts =
+            new AACNativeBatchReceiptLedger();
 
     /** Transactionから実Workerへ引く、NBTへ重複保存しない遅延索引。 */
     @Unique
