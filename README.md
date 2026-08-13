@@ -22,8 +22,8 @@ NeoForge line is maintained independently on `mc/1.21.1`.
 - Java `17`
 - Applied Energistics 2 `15.4.10`, or the verified AE2-UELM replacement
   `15.5.0-uelm` using the `uelm` build profile
-- Neo ECO AE Extension `20.3.0`
-- AE2 Crafting Optimizer `1.5.7` through the compatible `1.5.x` Forge contract
+- Neo ECO AE Extension `20.4.0`
+- AE2 Crafting Optimizer `1.5.15` through the compatible `1.5.x` Forge contract
 - Advanced Quantum Engineering `2.1.2` through `2.2.x` is optional
 - Dedicated server, singleplayer, and Arclight as a normal Forge mod
 
@@ -265,9 +265,10 @@ Pass the Forge 1.20.1 ACO contract explicitly, then choose either the default
 upstream AE2 profile or the verified UELM profile:
 
 ```powershell
-.\gradlew.bat clean build --no-daemon
-# -PacoJar=C:/path/to/ae2-crafting-optimizer-<version>.jar
-# -Pae2Variant=uelm selects AE2-UELM 15.5.0-uelm
+.\gradlew.bat clean check build --no-daemon `
+  -PaacLocalModsDir=C:/path/to/1.20.1/mods `
+  -PacoJar=C:/path/to/aco1.5.15_1.20.1.jar
+# Add -Pae2Variant=uelm to select AE2-UELM 15.5.0-uelm.
 ```
 
 The output JAR is written to `build/libs`.

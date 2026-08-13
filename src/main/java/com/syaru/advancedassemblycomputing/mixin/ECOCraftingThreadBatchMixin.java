@@ -23,7 +23,6 @@ import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchReques
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchSnapshot;
 import com.syaru.ae2craftingoptimizer.api.vector.ExactStack;
 import com.syaru.ae2craftingoptimizer.api.vector.PreparedVectorBatchCodec;
-import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -78,6 +77,9 @@ public abstract class ECOCraftingThreadBatchMixin
 
     @Shadow
     private boolean isBusy;
+
+    @Shadow
+    private boolean outputsReady;
 
     @Unique
     private UUID aac$batchTransactionId;
@@ -184,6 +186,13 @@ public abstract class ECOCraftingThreadBatchMixin
                 prepareVerifiedWork(
                         request,
                         proof);
+        ECOCraftingSystemBlockEntity.CraftingLane lane =
+                controller.findAvailableCraftingLane(1);
+        // 20.4系ではThread開始時に実laneを必須とするため、空きがなければ副作用前に辞退する。
+        if (lane == null) {
+            craftingInv.clearContent();
+            return false;
+        }
         // ここまでが副作用のないPrepare段階。以降は一度だけ狭くcommitする。
         aac$batchTransactionId =
                 request.transactionId();
@@ -198,35 +207,29 @@ public abstract class ECOCraftingThreadBatchMixin
         aac$state = AacThreadState.RUNNING;
         aac$revisions.ownershipChanged();
         aac$invalidateSnapshotCache();
-        boolean workStarted = false;
-        boolean coolantCommitted = false;
+        boolean coolingCommitted = false;
         try {
-            // Sidecarを先に用意し、NeoECO Threadと同じ保存単位で復元できるようにする。
+            /*
+             * N回分ではなく、一つの物理Thread分だけ20.4系の冷却条件をcommitする。
+             * 負値は未受理、例外は消費状態不明として隔離する。
+             */
+            int coolingMultiplier =
+                    ((ECOCraftingThreadBatchAccessor) (Object) this)
+                            .aac$invokePrepareCraftingCooling(
+                                    controller,
+                                    1);
+            if (coolingMultiplier < 0) {
+                craftingInv.clearContent();
+                aac$clearSidecar();
+                return false;
+            }
+            coolingCommitted = true;
+            // Sidecarと物理Threadを同じcommit区間で開始し、再起動時の所有権を一意にする。
             startVerifiedWork(
                     preparedWork,
-                    request.craftingJobId());
-            workStarted = true;
-            /*
-             * N回分ではなく、一つの物理Thread分だけ冷却材をcommitする。
-             * falseは消費されていない拒否、例外は消費状態不明として隔離する。
-             */
-            try {
-                if (!((ECOCraftingThreadBatchAccessor) (Object) this)
-                        .aac$invokeConsumeCraftingCoolant(
-                                controller,
-                                1)) {
-                    aac$rollbackPhysicalWork();
-                    craftingInv.clearContent();
-                    aac$clearSidecar();
-                    return false;
-                }
-                coolantCommitted = true;
-            } catch (RuntimeException | LinkageError coolantFailure) {
-                aac$quarantineAfterCommit(
-                        coolantFailure);
-                craftingInv.clearContent();
-                return true;
-            }
+                    request.craftingJobId(),
+                    lane.index(),
+                    coolingMultiplier);
             /*
              * Eventは永続会計ではない。listenerの例外で完成済みThreadを巻き戻さず、
              * 物理仕事を正本として記録だけ残す。
@@ -244,13 +247,7 @@ public abstract class ECOCraftingThreadBatchMixin
             }
             return true;
         } catch (RuntimeException | LinkageError failure) {
-            if (workStarted && !coolantCommitted) {
-                aac$rollbackPhysicalWork();
-                craftingInv.clearContent();
-                aac$clearSidecar();
-                return false;
-            }
-            if (coolantCommitted) {
+            if (coolingCommitted) {
                 // 冷却材とThreadのどちらかが確定した後の不確定例外は再実行禁止。
                 aac$quarantineAfterCommit(
                         failure);
@@ -261,21 +258,6 @@ public abstract class ECOCraftingThreadBatchMixin
             craftingInv.clearContent();
             return false;
         }
-    }
-
-    @Unique
-    private void aac$rollbackPhysicalWork() {
-        ECOCraftingThread self =
-                (ECOCraftingThread) (Object) this;
-        int occupiedSlots =
-                Math.max(
-                        1,
-                        self.getOccupiedThreadSlots());
-        ((ECOCraftingThreadBatchAccessor) (Object) this)
-                .aac$invokeClearWork();
-        worker.onThreadStop(
-                occupiedSlots);
-        worker.setChanged();
     }
 
     @Unique
@@ -326,14 +308,19 @@ public abstract class ECOCraftingThreadBatchMixin
     @Unique
     private void startVerifiedWork(
             PreparedCraftingTableWork prepared,
-            UUID craftingJobId) {
+            UUID craftingJobId,
+            int laneIndex,
+            int coolingMultiplier) {
         ((ECOCraftingThreadBatchAccessor) (Object) this)
-                .aac$invokeStartWork(
+                .aac$invokeStartBatchWork(
                         prepared.outputs(),
                         prepared.inputs(),
                         prepared.remaining(),
                         craftingJobId,
-                        1);
+                        1,
+                        laneIndex,
+                        coolingMultiplier,
+                        false);
     }
 
     @Override
@@ -458,8 +445,7 @@ public abstract class ECOCraftingThreadBatchMixin
         }
         ECOCraftingThread self =
                 (ECOCraftingThread) (Object) this;
-        boolean ready =
-                self.isOutputReady();
+        boolean ready = outputsReady;
         aac$observeSnapshotInputs(self, ready);
         if (aac$cachedSnapshot != null
                 && aac$cachedSnapshotRevision
@@ -502,27 +488,17 @@ public abstract class ECOCraftingThreadBatchMixin
         if (aac$isQuarantined()
                 || aac$batchMode
                         != CraftingTableBatchMode.BIG_INTEGER_JOB
-                || !self.isOutputReady()
+                || !outputsReady
                 || !aac$ownsCraftingTableBatch(
                         transactionId,
                         payloadDigest)) {
             return false;
         }
-        KeyCounter representativeOutputs =
-                new KeyCounter();
-        // NeoECOの完了処理へ「代表出力を受理済み」と渡し、MEへは挿入しない。
-        for (Object2LongMap.Entry<AEKey> output :
-                self.collectOutputItems()) {
-            representativeOutputs.add(
-                    output.getKey(),
-                    output.getLongValue());
-        }
-        self.applyOutputFlush(
-                representativeOutputs);
+        // BigInteger全量はACOが会計済みなので、代表一回分をMEへ搬出せずThreadだけ解放する。
+        aac$releasePhysicalThreadWithoutInventoryTransfer(self);
         aac$revisions.receiptChanged();
         aac$revisions.ownershipChanged();
         aac$invalidateSnapshotCache();
-        aac$unmarkReadyThread();
         aac$wakeWorker();
         return true;
     }
@@ -541,60 +517,46 @@ public abstract class ECOCraftingThreadBatchMixin
         }
         ECOCraftingThread self =
                 (ECOCraftingThread) (Object) this;
-        int occupiedSlots =
-                Math.max(
-                        1,
-                        self.getOccupiedThreadSlots());
         /*
          * 代表一回分は実在庫ではないため、通常回収へ渡さずThread占有だけを解放する。
          * 実境界入力の返却はACO親Transactionが行う。
          */
-        ((ECOCraftingThreadBatchAccessor) (Object) this)
-                .aac$invokeClearWork();
-        worker.onThreadStop(occupiedSlots);
-        worker.setChanged();
+        aac$releasePhysicalThreadWithoutInventoryTransfer(self);
         aac$revisions.ownershipChanged();
         aac$invalidateSnapshotCache();
-        aac$unmarkReadyThread();
         aac$wakeWorker();
         return true;
     }
 
     @Inject(method = "tick", at = @At("HEAD"), cancellable = true)
     private void aac$sleepAccountingOnlyReadyTick(
+            int overclockTimes,
+            int powerMultiply,
             int ticksSinceLastCall,
-            int maxTicksSinceLastCall,
-            int energy,
+            boolean fullNetworkPowerMode,
+            boolean networkPowerPrepaid,
             CallbackInfoReturnable<TickRateModulation> callbackInfo) {
-        ECOCraftingThread self = (ECOCraftingThread) (Object) this;
-        if (!self.isOutputReady()) {
+        // 隔離ThreadはNeoECOの進捗・回収state machineへ再投入しない。
+        if (aac$isQuarantined()) {
+            callbackInfo.setReturnValue(TickRateModulation.SLEEP);
             return;
         }
-        aac$markReadyThread();
-        if (aac$isBigIntegerBatch()) {
-            AACPerformanceMetrics.outputReadySleepTick();
-            AACPerformanceMetrics.accountingOnlyUrgentAvoided();
-            callbackInfo.setReturnValue(TickRateModulation.SLEEP);
+        if (!outputsReady || !aac$isBigIntegerBatch()) {
+            return;
         }
+        AACPerformanceMetrics.outputReadySleepTick();
+        AACPerformanceMetrics.accountingOnlyUrgentAvoided();
+        callbackInfo.setReturnValue(TickRateModulation.SLEEP);
     }
 
-    @Inject(method = "tickAggregated", at = @At("HEAD"), cancellable = true)
-    private void aac$sleepAccountingOnlyReadyAggregatedTick(
-            int effectiveOverclockTimes,
-            int energy,
-            int maxTicksSinceLastCall,
-            double energyScale,
+    @Inject(method = "ejectOutputsSafely", at = @At("HEAD"), cancellable = true)
+    private void aac$holdAccountingOnlyOutputAtCompletion(
             CallbackInfoReturnable<TickRateModulation> callbackInfo) {
-        ECOCraftingThread self = (ECOCraftingThread) (Object) this;
-        if (!self.isOutputReady()) {
+        // 20.4系は完了tick内で即搬出するため、BigInteger代表出力をここで必ず止める。
+        if (!aac$isBigIntegerBatch() && !aac$isQuarantined()) {
             return;
         }
-        aac$markReadyThread();
-        if (aac$isBigIntegerBatch()) {
-            AACPerformanceMetrics.outputReadySleepTick();
-            AACPerformanceMetrics.accountingOnlyUrgentAvoided();
-            callbackInfo.setReturnValue(TickRateModulation.SLEEP);
-        }
+        callbackInfo.setReturnValue(TickRateModulation.SLEEP);
     }
 
     @Inject(
@@ -616,10 +578,7 @@ public abstract class ECOCraftingThreadBatchMixin
     }
 
     @Inject(
-            method = {
-                "recoverInputsToNetwork",
-                "recoverUnfinishedInputsToNetwork"
-            },
+            method = "recoverInputsToNetwork",
             at = @At("HEAD"),
             cancellable = true)
     private void aac$keepBigIntegerInputsOutOfNetwork(
@@ -645,18 +604,6 @@ public abstract class ECOCraftingThreadBatchMixin
     }
 
     @Inject(
-            method = "applyOutputFlush",
-            at = @At("HEAD"),
-            cancellable = true)
-    private void aac$ignoreQuarantinedOutputFlush(
-            KeyCounter acceptedOutputs,
-            CallbackInfo callbackInfo) {
-        if (aac$isQuarantined()) {
-            callbackInfo.cancel();
-        }
-    }
-
-    @Inject(
             method = "dropRecoverablesAndClear",
             at = @At("HEAD"),
             cancellable = true)
@@ -670,14 +617,7 @@ public abstract class ECOCraftingThreadBatchMixin
         }
         ECOCraftingThread self =
                 (ECOCraftingThread) (Object) this;
-        int occupiedSlots =
-                Math.max(
-                        1,
-                        self.getOccupiedThreadSlots());
-        ((ECOCraftingThreadBatchAccessor) (Object) this)
-                .aac$invokeClearWork();
-        worker.onThreadStop(occupiedSlots);
-        worker.setChanged();
+        aac$releasePhysicalThreadWithoutInventoryTransfer(self);
         callbackInfo.cancel();
     }
 
@@ -701,8 +641,7 @@ public abstract class ECOCraftingThreadBatchMixin
                 SIDECAR_SCHEMA);
         sidecar.putString(
                 NBT_STATE,
-                ((ECOCraftingThread) (Object) this)
-                                .isOutputReady()
+                outputsReady
                         ? AacThreadState.OUTPUT_READY.name()
                         : AacThreadState.RUNNING.name());
         sidecar.putUUID(
@@ -764,7 +703,6 @@ public abstract class ECOCraftingThreadBatchMixin
     @Inject(method = "clearWork", at = @At("TAIL"))
     private void aac$clearBatchSidecar(
             CallbackInfo callbackInfo) {
-        aac$unmarkReadyThread();
         aac$revisions.ownershipChanged();
         aac$invalidateSnapshotCache();
         aac$clearSidecar();
@@ -802,26 +740,24 @@ public abstract class ECOCraftingThreadBatchMixin
     }
 
     @Unique
-    private void aac$markReadyThread() {
-        if (worker instanceof AACCraftingTableBatchWorker batchWorker) {
-            batchWorker.aac$markOutputReady(
-                    (ECOCraftingThread) (Object) this);
-        }
-    }
-
-    @Unique
-    private void aac$unmarkReadyThread() {
-        if (worker instanceof AACCraftingTableBatchWorker batchWorker) {
-            batchWorker.aac$unmarkOutputReady(
-                    (ECOCraftingThread) (Object) this);
-        }
-    }
-
-    @Unique
     private void aac$wakeWorker() {
         if (worker instanceof AACCraftingTableBatchWorker batchWorker) {
             batchWorker.aac$wakeForBatchChange();
         }
+    }
+
+    @Unique
+    private void aac$releasePhysicalThreadWithoutInventoryTransfer(
+            ECOCraftingThread self) {
+        int occupiedSlots = Math.max(1, self.getOccupiedThreadSlots());
+        /*
+         * clearWorkはThread内部だけを空にする。20.4系のWorker会計は親呼出側が
+         * onThreadStopへ同じ占有slot数を渡すため、ここでもその順序を保つ。
+         */
+        ((ECOCraftingThreadBatchAccessor) (Object) this)
+                .aac$invokeClearWork();
+        worker.onThreadStop(occupiedSlots);
+        worker.setChanged();
     }
 
     @Unique
@@ -1001,7 +937,7 @@ public abstract class ECOCraftingThreadBatchMixin
                         hasState,
                         storedState,
                         hasActivePayload,
-                        ((ECOCraftingThread) (Object) this).isOutputReady());
+                        outputsReady);
         if (migration.state() == AacThreadState.NONE) {
             aac$state = AacThreadState.NONE;
             return;

@@ -62,6 +62,20 @@ public final class AACCraftingTableTerminalReceiptLedger {
         return reservations.size();
     }
 
+    public synchronized boolean isReserved(
+            UUID transactionId,
+            String payloadDigest) {
+        String reserved =
+                reservations.get(
+                        Objects.requireNonNull(
+                                transactionId,
+                                "transactionId"));
+        return reserved != null
+                && reserved.equals(
+                        checkedDigest(
+                                payloadDigest));
+    }
+
     public synchronized int quarantinedCount() {
         return quarantinedEntries.size()
                 + unknownQuarantinedEntries.size()

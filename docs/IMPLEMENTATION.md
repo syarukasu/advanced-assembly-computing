@@ -214,6 +214,6 @@ The three AQE progression recipes use `forge:conditional` with
 Common code references no client-only Minecraft class. AAC uses no Bukkit,
 Paper, Spigot, or Arclight API.
 
-Mixins are required and pinned to the exact Neo ECO `20.3.0` manifest in
+Mixins are required and pinned to the exact Neo ECO `20.4.0` manifest in
 `docs/contracts/1.20.1.json`. A missing target must fail before a job is
 accepted rather than leave decorative hardware with incorrect accounting.

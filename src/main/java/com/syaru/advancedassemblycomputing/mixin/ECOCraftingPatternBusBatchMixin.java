@@ -312,7 +312,7 @@ public abstract class ECOCraftingPatternBusBatchMixin
 
     /*
      * このMixinはNeoECOクラス全体をremapしないため、Minecraft由来の
-     * saveAdditionalだけはNeoECO 20.3.0配布JAR上のSRG名を明示する。
+     * saveAdditionalだけはNeoECO 20.4.0配布JAR上のSRG名を明示する。
      */
     @Inject(method = "m_183515_", at = @At("TAIL"))
     private void aac$saveBatchReceipts(

@@ -16,9 +16,9 @@ import org.objectweb.asm.FieldVisitor;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 
-/** Contract test against the exact Neo ECO 20.3.0 JAR used by the build. */
+/** Contract test against the exact Neo ECO 20.4.0 JAR used by the build. */
 class NeoEcoRuntimeMethodContractTest {
-    private static final String NEO_ECO_JAR = "neoecoae-20.3.0.jar";
+    private static final String NEO_ECO_JAR = "neoecoae-20.4.0.jar";
     private static final String THREAD_CLASS =
             "cn.dancingsnow.neoecoae.api.me.ECOCraftingThread";
     private static final String WORKER_CLASS =
@@ -32,13 +32,16 @@ class NeoEcoRuntimeMethodContractTest {
     void productionThreadContractHasExactPersistenceAndRecoveryDescriptors() throws Exception {
         ClassContract contract = readContract(THREAD_CLASS);
         assertMethods(contract,
-                "startWork(Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/UUID;I)V",
+                "startBatchWork(Ljava/util/List;Ljava/util/List;Ljava/util/List;Ljava/util/UUID;IIIZ)V",
+                "prepareCraftingCooling(Lcn/dancingsnow/neoecoae/blocks/entity/crafting/ECOCraftingSystemBlockEntity;I)I",
+                "tick(IIIZZ)Lappeng/api/networking/ticking/TickRateModulation;",
                 "clearWork()V",
                 "serializeNBT()Lnet/minecraft/nbt/CompoundTag;",
                 "deserializeNBT(Lnet/minecraft/nbt/CompoundTag;)V",
+                "ejectOutputsSafely()Lappeng/api/networking/ticking/TickRateModulation;",
+                "collectOutputItems()Lappeng/api/stacks/KeyCounter;",
                 "recoverOrphanedWorkToNetwork(Ljava/util/Set;Lappeng/api/storage/MEStorage;)Z",
                 "recoverInputsToNetwork(Lappeng/api/storage/MEStorage;)Z",
-                "recoverUnfinishedInputsToNetwork(Lappeng/api/storage/MEStorage;)Z",
                 "dropRecoverablesAndClear(Ljava/util/List;)V");
     }
 
@@ -49,6 +52,7 @@ class NeoEcoRuntimeMethodContractTest {
         assertMethods(worker,
                 "getAvailableThreadSlots()I",
                 "getThreadSnapshots()Ljava/util/List;",
+                "wakeTickingDevice()V",
                 "m_183515_(Lnet/minecraft/nbt/CompoundTag;)V",
                 "loadTag(Lnet/minecraft/nbt/CompoundTag;)V");
 
@@ -65,7 +69,8 @@ class NeoEcoRuntimeMethodContractTest {
     void productionClusterHasTheExpectedStructurePredicateTarget() throws Exception {
         assertMethods(
                 readContract(CLUSTER_CLASS),
-                "verifyInternalStructure(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/BlockPos;Z)Z");
+                "verifyInternalStructure(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/BlockPos;Z)Z",
+                "matchingParallelCore(Lnet/minecraft/world/level/Level;Lcn/dancingsnow/neoecoae/api/IECOTier;Lnet/minecraft/core/Direction;)Ljava/util/function/BiPredicate;");
     }
 
     private static ClassContract readContract(String className) throws Exception {

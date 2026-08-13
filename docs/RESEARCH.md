@@ -3,9 +3,8 @@
 ## Investigated Artifacts
 
 - Applied Energistics 2 `15.4.10`
-- Neo ECO AE Extension `20.3.0`
-- Neo ECO source commit `d0c7a1d`
-- AE2 Crafting Optimizer `1.5.4`
+- Neo ECO AE Extension `20.4.0`
+- AE2 Crafting Optimizer `1.5.15`
 - Advanced Quantum Engineering `2.1.2` through `2.2.x`
 - InsaneAE Quantum CPU source architecture
 

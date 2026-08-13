@@ -106,10 +106,10 @@ dependencies {
     def localAe2 = ae2JarProperty == null
             ? new File(localModsDir, ae2Profile.localFile)
             : file(ae2JarProperty)
-    // 有効JARとランチャーが無効化したJARのどちらからでも、検証済みNeo ECO 20.3.0を解決する。
+    // 有効JARとランチャーが無効化したJARのどちらからでも、検証済みNeo ECO 20.4.0を解決する。
     def localNeoEco = [
-        new File(localModsDir, 'neoecoae-20.3.0.jar'),
-        new File(localModsDir, 'neoecoae-20.3.0.jar.disabled')
+        new File(localModsDir, 'neoecoae-20.4.0.jar'),
+        new File(localModsDir, 'neoecoae-20.4.0.jar.disabled')
     ].find { it.isFile() }
     def localLdlib = new File(localModsDir, 'ldlib-forge-1.20.1-1.0.50.jar')
     def acoJarProperty = findProperty('acoJar')
@@ -223,6 +223,97 @@ tasks.register('verifyAcoPublicApiBoundary') {
     }
 }
 
+tasks.register('verifyOptionalAqeResourceContract') {
+    description = 'Verify AQE-optional Forge recipes, or also validate an explicitly supplied AQE artifact.'
+    group = 'verification'
+    doLast {
+        def expectedRecipeNames = [
+                'vector_crafting_controller.json',
+                'vector_crafting_parallel_core.json',
+                'vector_crafting_worker.json'
+        ] as Set
+        def recipeDirectory = file(
+                'src/main/resources/data/advanced_assembly_computing/recipes')
+        def expectedRecipes = expectedRecipeNames.collect {
+            new File(recipeDirectory, it)
+        }
+        def parser = new groovy.json.JsonSlurper()
+
+        // AQE非導入時もresource reloadでJSON構文に失敗しないよう全配布JSONを解析する。
+        fileTree('src/main/resources').matching { include '**/*.json' }.files.each { resource ->
+            parser.parseText(resource.getText('UTF-8'))
+        }
+
+        // AQE item IDを含むrecipeは三つのForge条件付きrecipeだけに限定する。
+        def aqeReferences = fileTree('src/main/resources').matching {
+            include '**/*.json'
+        }.files.findAll { resource ->
+            resource.getText('UTF-8').contains('advanced_quantum_engineering:')
+        } as Set
+        if (aqeReferences != expectedRecipes as Set) {
+            throw new GradleException(
+                    "AQE references escaped the optional recipe boundary: ${aqeReferences}")
+        }
+
+        // 各AQE recipeがForgeのmod_loaded条件で一件だけを包んでいることを検証する。
+        expectedRecipes.each { recipe ->
+            def root = parser.parseText(recipe.getText('UTF-8'))
+            def wrapped = root.recipes
+            if (root.type != 'forge:conditional'
+                    || !(wrapped instanceof List)
+                    || wrapped.size() != 1
+                    || wrapped[0].conditions?.size() != 1
+                    || wrapped[0].conditions[0].type != 'forge:mod_loaded'
+                    || wrapped[0].conditions[0].modid != 'advanced_quantum_engineering'
+                    || !(wrapped[0].recipe instanceof Map)) {
+                throw new GradleException(
+                        "AQE recipe is not safely Forge-conditional: ${recipe}")
+            }
+        }
+
+        def aqeJarProperty = findProperty('aqeJar')
+        // -PaqeJar未指定はAQEなしの契約検査として正常終了する。
+        if (aqeJarProperty == null) {
+            logger.lifecycle('AAC optional AQE resources verified without AQE')
+            return
+        }
+
+        File aqeJar = file(aqeJarProperty)
+        if (!aqeJar.isFile()) {
+            throw new GradleException("Optional AQE artifact is missing: ${aqeJar}")
+        }
+        def requiredModels = [
+                'assets/advanced_quantum_engineering/models/item/big_integer_quantum_core.json',
+                'assets/advanced_quantum_engineering/models/item/modified_quantum_accelerator.json',
+                'assets/advanced_quantum_engineering/models/item/modified_quantum_multi_threader.json',
+                'assets/advanced_quantum_engineering/models/item/modified_quantum_storage.json'
+        ] as Set
+        def archive = new java.util.jar.JarFile(aqeJar)
+        try {
+            def metadataEntry = archive.getJarEntry('META-INF/mods.toml')
+            if (metadataEntry == null
+                    || archive.getJarEntry('META-INF/neoforge.mods.toml') != null) {
+                throw new GradleException(
+                        "AQE artifact is not Forge 1.20.1: ${aqeJar}")
+            }
+            def metadata = archive.getInputStream(metadataEntry).getText('UTF-8')
+            if (!metadata.contains('modId = "advanced_quantum_engineering"')
+                    || !metadata.contains('versionRange = "[1.20.1,1.20.2)"')) {
+                throw new GradleException(
+                        "AQE artifact has unexpected Minecraft metadata: ${aqeJar}")
+            }
+            def entries = archive.entries().collect { it.name } as Set
+            if (!entries.containsAll(requiredModels)) {
+                throw new GradleException(
+                        "AQE artifact is missing AAC recipe materials: ${requiredModels - entries}")
+            }
+        } finally {
+            archive.close()
+        }
+        logger.lifecycle("AAC optional AQE resources verified with ${aqeJar.name}")
+    }
+}
+
 tasks.register('verifyAe2DependencyProfiles') {
     description = 'Verify the selected AE2 replacement profile and reject private AE2 imports.'
     group = 'verification'
@@ -261,6 +352,7 @@ tasks.named('compileJava').configure {
 
 tasks.named('check').configure {
     dependsOn tasks.named('verifyAe2DependencyProfiles')
+    dependsOn tasks.named('verifyOptionalAqeResourceContract')
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -319,10 +411,6 @@ tasks.register('normalizeReobfJarName') {
             throw new GradleException("Expected distribution JAR was not produced: ${expected}")
         }
     }
-}
-
-tasks.named('build') {
-    finalizedBy 'normalizeReobfJarName'
 }
 
 tasks.register('verifyAacArtifactBoundary') {

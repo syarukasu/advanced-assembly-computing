@@ -1,12 +1,5 @@
 package com.syaru.advancedassemblycomputing.mixin;
 
-import appeng.api.config.Actionable;
-import appeng.api.networking.IGrid;
-import appeng.api.networking.security.IActionSource;
-import appeng.api.stacks.AEKey;
-import appeng.api.stacks.KeyCounter;
-import appeng.api.storage.MEStorage;
-import appeng.me.service.CraftingService;
 import cn.dancingsnow.neoecoae.api.me.ECOCraftingThread;
 import cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingSystemBlockEntity;
 import cn.dancingsnow.neoecoae.blocks.entity.crafting.ECOCraftingWorkerBlockEntity;
@@ -17,13 +10,9 @@ import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchThread
 import com.syaru.advancedassemblycomputing.execution.AACPerformanceMetrics;
 import com.syaru.advancedassemblycomputing.execution.AACCraftingTableBatchWorker;
 import com.syaru.advancedassemblycomputing.execution.AACRevisionTracker;
-import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchMode;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchRequest;
 import com.syaru.ae2craftingoptimizer.api.craftingtable.CraftingTableBatchSnapshot;
-import it.unimi.dsi.fastutil.objects.Object2LongMap;
 import java.util.HashMap;
-import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -55,10 +44,6 @@ public abstract class ECOCraftingWorkerBatchMixin
     @Shadow
     private int nextFreeThreadIndex;
 
-    @Shadow
-    @Final
-    private IActionSource actionSource;
-
     @Unique
     private final AACCraftingTableTerminalReceiptLedger
             aac$terminalReceipts =
@@ -88,10 +73,6 @@ public abstract class ECOCraftingWorkerBatchMixin
             new HashSet<>();
 
     @Unique
-    private final Set<ECOCraftingThread> aac$readyThreads =
-            Collections.newSetFromMap(new IdentityHashMap<>());
-
-    @Unique
     private final AACRevisionTracker aac$revisions =
             new AACRevisionTracker();
 
@@ -103,6 +84,12 @@ public abstract class ECOCraftingWorkerBatchMixin
                         instanceof VectorCraftingControllerBlockEntity vectorController)
                 || !vectorController.isFormed()) {
             return false;
+        }
+        // 完了済みTransactionの再送は、物理Threadを再実行せず受理済みとして返す。
+        if (aac$terminalReceipts.contains(
+                request.transactionId(),
+                request.payloadDigest())) {
+            return true;
         }
         // 受理前に完了Receipt枠を予約し、後段で容量不足にならないようにする。
         if (!aac$terminalReceipts.reserve(
@@ -247,16 +234,6 @@ public abstract class ECOCraftingWorkerBatchMixin
         ((ECOCraftingWorkerBatchAccessor) (Object) this)
                 .aac$invokeWakeTickingDevice();
         AACPerformanceMetrics.wakeup();
-    }
-
-    @Override
-    public void aac$markOutputReady(ECOCraftingThread thread) {
-        aac$readyThreads.add(thread);
-    }
-
-    @Override
-    public void aac$unmarkOutputReady(ECOCraftingThread thread) {
-        aac$readyThreads.remove(thread);
     }
 
     @Override
@@ -421,115 +398,26 @@ public abstract class ECOCraftingWorkerBatchMixin
                     .setChanged();
             return true;
         }
+        // Thread保存前に停止した場合は、孤立した予約だけを安全に解放する。
+        if (aac$terminalReceipts.isReserved(
+                transactionId,
+                payloadDigest)) {
+            boolean released =
+                    aac$terminalReceipts.releaseReservation(
+                            transactionId,
+                            payloadDigest);
+            if (released) {
+                ((ECOCraftingWorkerBlockEntity) (Object) this)
+                        .setChanged();
+            }
+            return released;
+        }
         return false;
-    }
-
-    @Inject(
-            method = "flushCompletedOutputs",
-            at = @At("HEAD"),
-            cancellable = true)
-    private void aac$flushManagedOutputsPerThread(
-            CallbackInfo callbackInfo) {
-        boolean containsReadyManagedBatch = false;
-        /*
-         * AAC仕事が完了したtickだけNeoECOの全Thread合算を置き換える。
-         * 通常Threadだけのtickは親MODの高速経路をそのまま使う。
-         */
-        for (ECOCraftingThread thread :
-                aac$readyThreads) {
-            if (thread.isOutputReady()
-                    && thread
-                            instanceof AACCraftingTableBatchThread batchThread
-                    && batchThread
-                            .aac$isManagedCraftingTableBatch()) {
-                containsReadyManagedBatch =
-                        true;
-                break;
-            }
-        }
-        if (!containsReadyManagedBatch) {
-            return;
-        }
-
-        ECOCraftingWorkerBlockEntity self =
-                (ECOCraftingWorkerBlockEntity) (Object) this;
-        IGrid grid =
-                self.getMainNode()
-                        .getGrid();
-        // Grid不在時は出力をThread内へ保持し、次tickの再試行を待つ。
-        if (grid == null) {
-            callbackInfo.cancel();
-            return;
-        }
-
-        CraftingService craftingService =
-                (CraftingService) grid.getCraftingService();
-        MEStorage storage =
-                grid.getStorageService()
-                        .getInventory();
-        /*
-         * 各Threadを別々に搬出する。
-         * 同じキーの巨大long出力が複数本あっても、親MODのcombined KeyCounterで
-         * 加算overflowさせない。
-         */
-        for (ECOCraftingThread thread :
-                aac$readyThreads.toArray(ECOCraftingThread[]::new)) {
-            if (!thread.isOutputReady()) {
-                aac$readyThreads.remove(thread);
-                continue;
-            }
-            /*
-             * BigInteger出力はACO親台帳へReceiptとして返す。
-             * 代表一回分を通常ME Storageへ流すと複製になるため触れない。
-             */
-            if (thread
-                            instanceof AACCraftingTableBatchThread batchThread
-                    && batchThread
-                                    .aac$isManagedCraftingTableBatch()
-                            && batchThread
-                                            .aac$craftingTableBatchMode()
-                                    == CraftingTableBatchMode
-                                            .BIG_INTEGER_JOB) {
-                continue;
-            }
-
-            KeyCounter acceptedOutputs =
-                    new KeyCounter();
-            // このThreadの各出力を、待機中CPU優先で一度ずつ搬出する。
-            for (Object2LongMap.Entry<AEKey> output :
-                    thread.collectOutputItems()) {
-                long requested =
-                        output.getLongValue();
-                long accepted =
-                        craftingService.insertIntoCpus(
-                                output.getKey(),
-                                requested,
-                                Actionable.MODULATE);
-                // CPUが待っていない余剰だけを通常ME Storageへ戻す。
-                if (accepted < requested) {
-                    accepted +=
-                            storage.insert(
-                                    output.getKey(),
-                                    requested - accepted,
-                                    Actionable.MODULATE,
-                                    actionSource);
-                }
-                // 実際に受理された正数だけをThread完了処理へ渡す。
-                if (accepted > 0L) {
-                    acceptedOutputs.add(
-                            output.getKey(),
-                            accepted);
-                }
-            }
-            thread.applyOutputFlush(
-                    acceptedOutputs);
-        }
-        callbackInfo.cancel();
     }
 
     /*
      * このMixinはNeoECOクラス全体をremapしないため、Minecraft由来の
-     * saveAdditionalだけはNeoECO 20.3.0配布JAR上のSRG名を明示する。
+     * saveAdditionalだけはNeoECO 20.4.0配布JAR上のSRG名を明示する。
      */
     @Inject(method = "m_183515_", at = @At("TAIL"))
     private void aac$saveTerminalReceipts(
@@ -552,7 +440,6 @@ public abstract class ECOCraftingWorkerBatchMixin
         aac$quarantinedByTransaction.clear();
         aac$knownMissingTransactions.clear();
         aac$knownMissingQuarantines.clear();
-        aac$readyThreads.clear();
         aac$terminalReceipts.load(
                 data.getCompound(
                         AAC_TERMINAL_RECEIPTS_NBT));
@@ -561,9 +448,6 @@ public abstract class ECOCraftingWorkerBatchMixin
                 index++) {
             ECOCraftingThread thread =
                     craftingThreads.get(index);
-            if (thread.isOutputReady()) {
-                aac$readyThreads.add(thread);
-            }
             if (thread instanceof AACCraftingTableBatchThread batchThread) {
                 batchThread.aac$ownerTransactionId()
                         .ifPresent(id -> aac$threadsByTransaction.put(id, batchThread));

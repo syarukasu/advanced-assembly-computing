@@ -13,7 +13,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 
 public final class VectorCraftingControllerBlockEntity extends ECOCraftingSystemBlockEntity {
-    // Neo ECO 20.3.0の最上位L9が公開するオーバークロック段数。
+    // Neo ECO 20.4.0の最上位L9が公開するオーバークロック段数。
     private static final int NEO_ECO_MAX_OVERCLOCK_LEVEL = 9;
     public VectorCraftingControllerBlockEntity(BlockPos pos, BlockState state) {
         super(AACBlockEntities.VECTOR_CRAFTING_CONTROLLER.get(), pos, state, AACTier.VECTOR);
