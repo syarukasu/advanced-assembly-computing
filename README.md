@@ -220,8 +220,15 @@ powerMultiplier = 1
 [nativeCraftingTableBatch]
 enabled = true
 requireExactPatternOwnership = true
+minimumLogicalExecutions = 256
 maximumExecutionsPerWave = 9223372036854775807
 ```
+
+`minimumLogicalExecutions` applies after all signed-long safety limits. Smaller
+normal AE2 jobs are not held for coalescing: they immediately use Neo ECO's
+physical-thread path and retain AAC's one-tick progress and configured
+parallelism. Exact BigInteger parent jobs are not clamped by this long-only
+threshold.
 
 `maximumExecutionsPerWave` is a coefficient ceiling, not a loop count.
 Per-stack signed-long safety may reduce the normal AE2 batch. ACO's exact
