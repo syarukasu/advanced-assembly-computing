@@ -104,6 +104,11 @@ public final class AACCraftingTableBatchAdapter
     }
 
     @Override
+    public long minimumExecutions(PatternBatchContext context) {
+        return AACConfig.minimumLogicalBatchExecutions();
+    }
+
+    @Override
     public long limitExecutions(
             PatternBatchContext context,
             long offeredExecutions) {
