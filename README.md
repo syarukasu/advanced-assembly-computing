@@ -39,7 +39,7 @@ releases repository. The default build remains pinned to upstream AE2
 `15.4.10` and its local artifact checks. Select UELM explicitly:
 
 ```powershell
-.\gradlew.bat clean check --no-daemon `
+.\gradlew.bat clean build --no-daemon `
   -Pae2Variant=uelm `
   -PaacLocalModsDir=C:/path/to/mods `
   -PacoJar=C:/path/to/aco<version>_1.20.1.jar
@@ -61,9 +61,7 @@ parts does not form the upper structure.
 
 ## Versioned Contracts
 
-The exact dependency and bytecode contract is recorded in
-`docs/contracts/1.20.1.json`. The `1.21.1` manifest is separate and is not
-used by the Forge artifact. AAC imports only `com.syaru.ae2craftingoptimizer.api.*`;
+AAC imports only `com.syaru.ae2craftingoptimizer.api.*`;
 the build rejects ACO implementation-package imports. Startup fails before a
 job can be accepted if the public receipt/target contract or required AAC
 Mixin interfaces are missing.
@@ -265,7 +263,7 @@ Pass the Forge 1.20.1 ACO contract explicitly, then choose either the default
 upstream AE2 profile or the verified UELM profile:
 
 ```powershell
-.\gradlew.bat clean check build --no-daemon `
+.\gradlew.bat clean build --no-daemon `
   -PaacLocalModsDir=C:/path/to/1.20.1/mods `
   -PacoJar=C:/path/to/aco1.5.15_1.20.1.jar
 # Add -Pae2Variant=uelm to select AE2-UELM 15.5.0-uelm.

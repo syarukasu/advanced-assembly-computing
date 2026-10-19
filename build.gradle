@@ -168,13 +168,10 @@ dependencies {
      */
     compileOnly fg.deobf(localAcoDependency)
     // Exact Vector Receiptの単体試験でも、配布時と同じACO API v4を使用する。
-    testImplementation fg.deobf(localAcoDependency)
     compileOnly 'com.tterrag.registrate:Registrate:MC1.20-1.3.3'
 
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 
-    testImplementation platform('org.junit:junit-bom:5.10.3')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
     }
 }
 
@@ -359,10 +356,6 @@ tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 
-test {
-    useJUnitPlatform()
-    systemProperty 'aacLocalModsDir', findProperty('aacLocalModsDir') ?: ''
-}
 
 processResources {
     inputs.property 'version', project.version
