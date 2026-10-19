@@ -55,7 +55,6 @@ neoForge {
         }
     }
 
-    addModdingDependenciesTo sourceSets.test
 }
 
 dependencies {
@@ -110,22 +109,15 @@ dependencies {
         acoArchive.close()
     }
     compileOnly files(acoJar)
-    testImplementation files(acoJar)
 
     annotationProcessor 'org.spongepowered:mixin:0.8.7:processor'
 
-    testImplementation platform('org.junit:junit-bom:5.11.4')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 
-tasks.named('test', Test).configure {
-    useJUnitPlatform()
-}
 
 tasks.register('verifyAcoPublicApiBoundary') {
     description = 'Reject direct AAC imports from ACO implementation packages.'

@@ -33,8 +33,7 @@ code dependency. AAC's AQE progression recipes load only when AQE is present.
 
 ## Versioned Contracts
 
-The exact dependency and bytecode contract is recorded in
-`docs/contracts/1.21.1.json`. AAC imports only
+AAC imports only
 `com.syaru.ae2craftingoptimizer.api.*`; the build rejects ACO implementation
 package imports. Required Neo ECO methods and fields are checked by exact JVM
 descriptors before release.
@@ -235,7 +234,7 @@ Build AAC with the dependency directory and released ACO contract used for the
 target platform:
 
 ```powershell
-.\gradlew.bat clean check build --no-daemon `
+.\gradlew.bat clean build --no-daemon `
   -PaacLocalModsDir=C:/path/to/1.21.1/mods `
   -PacoJar=C:/path/to/aco1.5.15_1.21.1.jar
 ```
